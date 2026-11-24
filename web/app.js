@@ -29,6 +29,52 @@ function toast(msg, bad = false) {
   setTimeout(() => el.remove(), bad ? 5200 : 3000);
 }
 
+/* ---------------- 外观：跟随 Windows 11 明暗 ---------------- */
+
+const THEME = { mode: "auto" };
+try { THEME.mode = localStorage.getItem("wb-theme") || "auto"; } catch (_) { /* 隐私模式 */ }
+// 支持 ?theme=light / dark 直接指定（也给截图和排查用）
+const themeParam = new URLSearchParams(location.search).get("theme");
+if (themeParam === "light" || themeParam === "dark") THEME.mode = themeParam;
+
+function systemTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function applyTheme() {
+  const eff = THEME.mode === "auto" ? systemTheme() : THEME.mode;
+  document.documentElement.dataset.theme = eff;
+  $$("#theme-seg .seg-item").forEach((b) => b.classList.toggle("is-active", b.dataset.themeSet === THEME.mode));
+}
+
+function setTheme(mode) {
+  THEME.mode = mode;
+  try { localStorage.setItem("wb-theme", mode); } catch (_) { /* 忽略 */ }
+  applyTheme();
+}
+
+/* ---------------- 自动保存 ---------------- */
+
+const SAVE = { timer: null, pending: false };
+
+function setSaveState(text, cls) {
+  const el = $("#save-state");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "save-state" + (cls ? " " + cls : "");
+}
+
+/** 选项一改就延时落盘，按钮只负责「立刻写」和「预览」，不用每次手动点保存 */
+function markDirty() {
+  SAVE.pending = true;
+  setSaveState("保存中…", "is-saving");
+  if (SAVE.timer) clearTimeout(SAVE.timer);
+  SAVE.timer = setTimeout(() => {
+    SAVE.timer = null;
+    saveMatch(true);
+  }, 420);
+}
+
 /* ---------------- 服务连接守护 ---------------- */
 
 const CONN = { online: true, checking: false, timer: null, manualStop: false };
@@ -145,6 +191,9 @@ async function boot() {
   const data = await api("/api/state");
   if (!data) return;
   applyState(data);
+  // 支持直接打开某个页面：#match / #skins / #deploy …
+  const want = (location.hash || "").replace("#", "");
+  if (want && document.getElementById("view-" + want)) switchView(want);
   CATALOG = await (await fetch("/data/catalog.json")).json();
   renderSkinList();
   if (ui.id) renderInspector();
@@ -174,6 +223,10 @@ function renderRail() {
   $("#rail-path").textContent = PATHS.csgo || "未定位安装目录";
   $("#top-mode").textContent = (META.modes[S.mode] || {}).label || S.mode;
   $("#top-diff").textContent = (META.difficulty[S.difficulty] || S.difficulty) + " 难度";
+  const ver = META.app ? "v" + META.app : "v1.0.2";
+  const bv = $("#brand-ver");
+  if (bv) bv.textContent = ver;
+  document.title = `CS2 Workbench ${ver}`;
 }
 
 /* ---------------- 概览 ---------------- */
@@ -208,9 +261,17 @@ function renderOverview() {
     },
     {
       label: "当前挂载",
-      value: HEALTH.gameinfo === "offline" ? "离线全功能" : HEALTH.gameinfo === "skin" ? "仅换肤" : "在线原版",
-      sub: HEALTH.gameinfo === "offline" ? "含 botprofile.vpk 覆盖" : HEALTH.gameinfo === "skin" ? "机器人插件已停用" : "官方匹配，无模组",
-      state: HEALTH.gameinfo === "online" ? "warn" : "ok",
+      value: HEALTH.gameinfo === "offline" ? "离线全功能"
+        : HEALTH.gameinfo === "boost" ? "强化人机（免插件）"
+          : HEALTH.gameinfo === "skin" ? "仅换肤"
+            : HEALTH.gameinfo === "suspended" ? "模组已挂起" : "在线原版",
+      sub: HEALTH.gameinfo === "offline" ? "metamod + botprofile 覆盖"
+        : HEALTH.gameinfo === "boost" ? "仅 botprofile 覆盖，不加载插件"
+          : HEALTH.gameinfo === "skin" ? "仅挂载 metamod，机器人插件停用"
+            : HEALTH.gameinfo === "suspended" ? "已摘掉 metamod 挂载，按原版启动"
+              : "官方匹配，无模组",
+      state: (HEALTH.gameinfo === "online" || HEALTH.gameinfo === "suspended") ? "warn"
+        : HEALTH.gameinfo === "boost" ? "ok" : "ok",
     },
   ];
 
@@ -231,10 +292,12 @@ function renderOverview() {
       <div class="mc-desc">${esc(m.desc)}</div>
     </button>`).join("");
 
+  const mounted = ["offline", "skin", "boost"].includes(HEALTH.gameinfo);
   const checks = [
     ["CS2 目录已定位", HEALTH.found, PATHS.cs2Root || "—"],
     ["Metamod 已安装", HEALTH.metamod, "addons/metamod"],
-    ["gameinfo 已挂载 addons", HEALTH.gameinfo !== "online", "csgo/gameinfo.gi"],
+    ["gameinfo 已挂载", mounted,
+      HEALTH.gameinfo === "boost" ? "免插件模式：只挂 overrides" : "csgo/gameinfo.gi"],
     ["强化 AI 插件在位", HEALTH.plugins.filter((p) => p !== "InventorySimulator").length >= 8, `${HEALTH.plugins.length} 个插件`],
     ["InventorySimulator 已安装", HEALTH.invsim, "plugins/InventorySimulator"],
     [(S.skinSource || "site") === "site" ? "官网库存已同步" : "本地库存已保存",
@@ -243,6 +306,14 @@ function renderOverview() {
     ["对局配置已写入", HEALTH.cfg, "cfg/wb_match.cfg"],
     ["难度覆盖已就位", !!HEALTH.difficultyVpk, HEALTH.difficultyVpk ? `overrides/botprofile.vpk (${HEALTH.difficultyVpk})` : "未应用"],
   ];
+  const compat = (META && META.compat) || null;
+  if (compat) {
+    checks.push([
+      compat.status === "ok" ? "模组与游戏版本匹配" : (compat.status === "broken" ? "模组与游戏版本不兼容" : "游戏比模组新，待上游适配"),
+      compat.status === "ok",
+      `游戏 ${compat.game.version || "?"} / 模组 ${compat.mod.date || "?"}`,
+    ]);
+  }
   $("#checklist").innerHTML = checks.map(([text, ok, hint]) => `
     <div class="check ${ok ? "ok" : "bad"}">
       <span class="check-mark">${ok ? "✓" : "·"}</span>
@@ -299,6 +370,73 @@ function renderMatch() {
   $("#applycmds").classList.toggle("is-on", !!m.applyPluginCmds);
 
   renderBotSync();
+  renderCompat();
+}
+
+function renderCompat() {
+  const c = (META && META.compat) || null;
+  const panel = $("#compat-panel");
+  if (!panel || !c) return;
+  const bad = c.status === "broken";
+  const warn = c.status === "stale";
+  const boostOn = S.mode === "boost";
+  panel.classList.toggle("is-bad", bad && !boostOn);
+  panel.classList.toggle("is-warn", warn && !bad);
+  panel.classList.toggle("is-ok", !bad && !warn);
+
+  const dot = $("#compat-dot");
+  if (dot) dot.className = "sync-dot " + (bad && !boostOn ? "is-on" : boostOn ? "is-on" : "is-off");
+
+  const tag = $("#compat-tag");
+  const title = $("#compat-title");
+  const detail = $("#compat-detail");
+
+  if (boostOn) {
+    if (tag) tag.textContent = "免插件强化";
+    if (title) title.textContent = "当前用 botprofile 覆盖强化人机，游戏可以正常进";
+    if (detail) detail.textContent =
+      "机器人手感、反应、行为树由 overrides/botprofile.vpk 提供，走引擎的虚拟文件系统，不需要任何插件。"
+      + "换肤要用 InventorySimulator 插件，等上游适配后再点「恢复完整模组」。";
+  } else if (bad) {
+    if (tag) tag.textContent = "不兼容";
+    if (title) title.textContent = c.title || "—";
+    if (detail) detail.textContent = (c.detail || "") + " 点下面的按钮可以立刻切到能用的模式。";
+  } else {
+    if (tag) tag.textContent = warn ? "待适配" : "正常";
+    if (title) title.textContent = c.title || "—";
+    if (detail) detail.textContent = c.detail || "";
+  }
+
+  const boostBtn = $("#compat-boost");
+  if (boostBtn) {
+    boostBtn.disabled = boostOn;
+    boostBtn.textContent = boostOn ? "已是免插件强化" : "切到强化人机（免插件）";
+  }
+  // 免插件模式本来就不加载任何插件，再做「原版启动」没有意义
+  const safeBtn = $("#compat-safe");
+  if (safeBtn) {
+    safeBtn.disabled = boostOn;
+    safeBtn.title = boostOn ? "当前模式已不加载插件，无需再隔离" : "";
+  }
+
+  // 换肤依赖插件：只要插件没挂载（免插件强化 / 挂起 / 在线原版），就在换肤页说清楚
+  const block = $("#skin-block");
+  if (block) {
+    const pluginsOff = HEALTH.gameinfo !== "offline" && HEALTH.gameinfo !== "skin";
+    block.classList.toggle("is-hidden", !pluginsOff);
+  }
+
+  const g = c.game || {};
+  const m = c.mod || {};
+  const bits = [
+    `游戏 ${g.version || "?"}${g.date ? `（${g.date}）` : ""}`,
+    `模组 ${m.date || "?"}`,
+    m.cssharp ? `CSSharp ${m.cssharp}` : "",
+    m.metamod ? `Metamod ${m.metamod}` : "",
+    boostOn ? "运行时：免插件强化" : c.suspended ? "模组已挂起" : "模组已挂载",
+    `工作台 v${c.app || META.app || "1.0.2"}`,
+  ].filter(Boolean);
+  $("#compat-ver").textContent = bits.join(" · ");
 }
 
 function renderBotSync() {
@@ -662,7 +800,11 @@ function renderDeploy() {
     ["强化 AI 插件", HEALTH.plugins.length >= 8, HEALTH.plugins.filter((p) => p !== "InventorySimulator").join(" / ")],
     ["InventorySimulator", HEALTH.invsim, "plugins/InventorySimulator"],
     ["gamedata", HEALTH.invsim, "gamedata/inventory-simulator.json"],
-    ["gameinfo.gi", HEALTH.gameinfo !== "online", HEALTH.gameinfo === "offline" ? "含 botprofile 覆盖" : HEALTH.gameinfo === "skin" ? "仅挂载 metamod" : "官方原版"],
+    ["gameinfo.gi", HEALTH.gameinfo !== "online" && HEALTH.gameinfo !== "suspended",
+      HEALTH.gameinfo === "offline" ? "含 metamod + botprofile 覆盖"
+        : HEALTH.gameinfo === "boost" ? "免插件：仅 botprofile 覆盖"
+          : HEALTH.gameinfo === "skin" ? "仅挂载 metamod"
+            : HEALTH.gameinfo === "suspended" ? "已挂起（可一键恢复）" : "官方原版"],
     ["难度覆盖 vpk", !!HEALTH.difficultyVpk, HEALTH.difficultyVpk || "未应用"],
     ["库存来源", true, (S.skinSource || "site") === "site" ? "inventory.cstrike.app" : "本地接口"],
     ["wb_match.cfg", HEALTH.cfg, "cfg/wb_match.cfg"],
@@ -730,12 +872,30 @@ function renderActionbar() {
   const modeLabel = (META.modes[S.mode] || {}).label || S.mode;
   $("#ab-mode").textContent = modeLabel;
   const m = S.match;
-  $("#ab-meta").textContent = `${m.map} · ${(META.gamemodes[m.gamemode] || {}).label || m.gamemode} · ${META.difficulty[S.difficulty] || S.difficulty} · -insecure`;
+  const ver = META.app ? "v" + META.app : "v1.0.2";
+  $("#ab-meta").textContent =
+    `${m.map} · ${(META.gamemodes[m.gamemode] || {}).label || m.gamemode} · ${META.difficulty[S.difficulty] || S.difficulty} · -insecure · ${ver}`;
   const btn = $("#ab-launch");
   const online = S.mode === "online";
   btn.disabled = online;
   btn.textContent = online ? "先切到离线模式" : "启动 CS2";
   btn.title = online ? "在线原版模式不加载模组，请先在概览页切换模式" : "";
+}
+
+/* ---------------- 保存 ---------------- */
+
+async function saveMatch(silent) {
+  setSaveState("保存中…", "is-saving");
+  const data = await api("/api/match", { match: collectMatch(), aim: S.aim, nades: S.nades });
+  if (!data) {
+    setSaveState("保存失败", "is-dirty");
+    return null;
+  }
+  SAVE.pending = false;
+  applyState(data.state);
+  setSaveState("已保存");
+  if (!silent) toast("已写入 cfg/wb_match.cfg");
+  return data;
 }
 
 /* ---------------- 事件 ---------------- */
@@ -784,17 +944,19 @@ function bind() {
 
   $("#gamemode-row").addEventListener("click", (ev) => {
     const chip = ev.target.closest("[data-gamemode]");
-    if (!chip) return;
+    if (!chip || chip.dataset.gamemode === S.match.gamemode) return;
     S.match.gamemode = chip.dataset.gamemode;
     renderMatch();
     renderActionbar();
+    markDirty();
   });
   $("#map-grid").addEventListener("click", (ev) => {
     const cell = ev.target.closest("[data-map]");
-    if (!cell) return;
+    if (!cell || cell.dataset.map === S.match.map) return;
     S.match.map = cell.dataset.map;
     renderMatch();
     renderActionbar();
+    markDirty();
   });
   $("#diff-row").addEventListener("click", async (ev) => {
     const chip = ev.target.closest("[data-diff]");
@@ -807,24 +969,47 @@ function bind() {
   });
   $("#aim-row").addEventListener("click", (ev) => {
     const chip = ev.target.closest("[data-aim]");
-    if (!chip) return;
+    if (!chip || chip.dataset.aim === S.aim) return;
     S.aim = chip.dataset.aim;
     renderMatch();
+    markDirty();
   });
   $("#nades-row").addEventListener("click", (ev) => {
     const chip = ev.target.closest("[data-nades]");
-    if (!chip) return;
+    if (!chip || chip.dataset.nades === S.nades) return;
     S.nades = chip.dataset.nades;
     renderMatch();
+    markDirty();
   });
 
-  $("#quota").addEventListener("input", (ev) => ($("#quota-val").textContent = ev.target.value));
-  $("#roundtime").addEventListener("input", (ev) => ($("#roundtime-val").textContent = Number(ev.target.value).toFixed(2)));
-  $("#freezetime").addEventListener("input", (ev) => ($("#freezetime-val").textContent = ev.target.value));
-  $("#startmoney").addEventListener("input", (ev) => ($("#startmoney-val").textContent = ev.target.value));
-  $("#c4timer").addEventListener("input", (ev) => ($("#c4timer-val").textContent = ev.target.value));
-  $("#ecolimit").addEventListener("input", (ev) => ($("#ecolimit-val").textContent = ev.target.value));
-  $("#botnades").addEventListener("click", () => $("#botnades").classList.toggle("is-on"));
+  $("#quota").addEventListener("input", (ev) => {
+    $("#quota-val").textContent = ev.target.value;
+    markDirty();
+  });
+  $("#roundtime").addEventListener("input", (ev) => {
+    $("#roundtime-val").textContent = Number(ev.target.value).toFixed(2);
+    markDirty();
+  });
+  $("#freezetime").addEventListener("input", (ev) => {
+    $("#freezetime-val").textContent = ev.target.value;
+    markDirty();
+  });
+  $("#startmoney").addEventListener("input", (ev) => {
+    $("#startmoney-val").textContent = ev.target.value;
+    markDirty();
+  });
+  $("#c4timer").addEventListener("input", (ev) => {
+    $("#c4timer-val").textContent = ev.target.value;
+    markDirty();
+  });
+  $("#ecolimit").addEventListener("input", (ev) => {
+    $("#ecolimit-val").textContent = ev.target.value;
+    markDirty();
+  });
+  $("#botnades").addEventListener("click", () => {
+    $("#botnades").classList.toggle("is-on");
+    markDirty();
+  });
 
   // 插件 cfg 同步（预设 / 机器人物品 / 经济）
   async function pushBotCfg(patch, msg) {
@@ -862,15 +1047,11 @@ function bind() {
   $("#open-bot-cfg").addEventListener("click", () => api("/api/open", { target: "botcfgdir" }));
 
   ["#ff", "#automap", "#applycmds"].forEach((id) =>
-    $(id).addEventListener("click", () => $(id).classList.toggle("is-on")));
+    $(id).addEventListener("click", () => {
+      $(id).classList.toggle("is-on");
+      markDirty();
+    }));
 
-  async function saveMatch(silent) {
-    const data = await api("/api/match", { match: collectMatch(), aim: S.aim, nades: S.nades });
-    if (!data) return null;
-    applyState(data.state);
-    if (!silent) toast("配置已写入 cfg/wb_match.cfg");
-    return data;
-  }
   $("#match-save").addEventListener("click", () => saveMatch(false));
   $("#match-preview").addEventListener("click", async () => {
     const data = await saveMatch(true);
@@ -890,9 +1071,74 @@ function bind() {
     btn.disabled = true;
     const data = await api("/api/launch", { match: collectMatch(), useSteam: true });
     btn.disabled = false;
-    if (data) toast("已发送启动命令，等待 CS2 加载模组…");
+    if (!data) return;
+    applyState(data.state);
+    const autoBoost = data.result && data.result.autoBoost;
+    if (autoBoost) {
+      toast("完整模组与当前 CS2 不兼容，已自动切到「强化人机（免插件）」并启动", true);
+    } else {
+      toast("已发送启动命令，正在看护启动过程…");
+    }
   }
   $("#ab-launch").addEventListener("click", launch);
+
+  // 外观
+  $("#theme-seg").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-theme-set]");
+    if (!btn) return;
+    setTheme(btn.dataset.themeSet);
+  });
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = () => { if (THEME.mode === "auto") applyTheme(); };
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  }
+
+  // 兼容性：检查上游更新
+  $("#compat-check").addEventListener("click", async () => {
+    toast("正在查询上游版本…");
+    const data = await api("/api/compat/check", {});
+    if (!data) return;
+    const r = data.result || {};
+    if (!r.ok) {
+      showDialog("检查更新失败", `${r.error || "网络不可用"}\n\n也可以手动打开：\n${r.page || "https://github.com/ed0ard/CS2-Bot-Improver/releases"}`);
+      return;
+    }
+    showDialog("上游最新版本", [
+      `最新发布：${r.latest}（${r.published}）`,
+      `本地模组：${r.local || "未知"}`,
+      "",
+      r.newer
+        ? "有新版本 → 下载后覆盖 CS2BotImprover 目录，再点「恢复模组挂载」。"
+        : "暂时没有更新的版本：作者还没适配当前这版 CS2，先用「原版启动」保底。",
+      "",
+      r.page,
+    ].join("\n"));
+  });
+
+  // 兼容性：原版启动（摘掉模组挂载，保证进得去）
+  $("#compat-safe").addEventListener("click", async () => {
+    const data = await api("/api/safe-launch", { match: collectMatch(), useSteam: true });
+    if (data) toast("已摘掉模组挂载并按原版启动（模组文件没删）");
+  });
+
+  // 兼容性：切到免插件强化
+  $("#compat-boost").addEventListener("click", async () => {
+    const data = await api("/api/mode", { mode: "boost" });
+    if (!data) return;
+    applyState(data.state);
+    toast("已切到「强化人机（免插件）」：机器人难度覆盖照旧生效，游戏可正常进");
+  });
+
+  // 兼容性：恢复模组挂载
+  $("#compat-reload").addEventListener("click", async () => {
+    const data = await api("/api/mods/resume", {});
+    if (!data) return;
+    applyState(data.state);
+    const check = (data.result && data.result.selfCheck) || {};
+    toast(check.ok ? "已恢复完整模组，自检通过" : "已恢复挂载，但自检仍有问题，看日志", !check.ok);
+  });
 
   // 换肤
   $("#team-seg").addEventListener("click", (ev) => {
@@ -974,6 +1220,7 @@ function bind() {
     toast(`已同步官网库存：T ${c.t} / CT ${c.ct} / 刀 ${c.knife} / 手套 ${c.gloves}`);
   });
   $("#site-open").addEventListener("click", () => api("/api/site/open", {}));
+  $("#skin-check-update").addEventListener("click", () => $("#compat-check").click());
 
   // 清理 / 还原
   $("#clean-run").addEventListener("click", async () => {
@@ -1141,5 +1388,6 @@ function showDialog(title, body) {
   $("#overlay").classList.add("is-open");
 }
 
+applyTheme();
 bind();
 boot();

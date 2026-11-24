@@ -1,32 +1,39 @@
-# CS2 WORKBENCH
+# CS2 WORKBENCH v1.0.2
 
 把「强化的离线人机」和「服务器端换肤」捏成一个本地工作台，全部在 `-insecure` 离线环境下运行。
 
 - 人机 AI：[ed0ard/CS2-Bot-Improver](https://github.com/ed0ard/CS2-Bot-Improver)（Metamod + CounterStrikeSharp 插件组 + botprofile 覆盖）
 - 换肤：[ianlucas/cs2-inventory-simulator](https://github.com/ianlucas/cs2-inventory-simulator)（服务器端 InventorySimulator 插件，皮肤取自 [inventory.cstrike.app](https://inventory.cstrike.app)）
-- 界面：原生 HTML/CSS/JS，纯黑白单色；后端是 Python 标准库，打包成单文件 exe
+- 界面：原生 HTML/CSS/JS，Windows 11 Fluent 风格（Mica 分层、8px 圆角、Segoe UI Variable、跟随系统明暗）；后端是 Python 标准库，打包成单文件 exe
+
+**当前版本 v1.0.2**（程序名就是 `CS2 Workbench v1.0.2.exe`，界面左上角与底部命令栏同步显示）
+
+- **免插件强化模式**：只挂 `overrides/botprofile.vpk`（引擎虚拟文件系统直接读 `botprofile.db` + `scripts/ai` 行为树），不加载任何插件。**CS2 更新导致插件崩了，这条路径照样可用**，机器人手感/反应仍然按难度档位生效
+- **启动崩溃看护 + 自动降级**：完整模组起不来时，点「启动」会自动切到免插件强化，不再让你对着闪退发呆
+- **换肤受限时明确提示**：InventorySimulator 属于插件，插件跑不了就没法下发皮肤，换肤页会直说原因并给出一键检查更新
+- **界面重做**：Windows 11 风格；选项改完自动保存，按钮只剩「立刻写入 / 预览 / 启动」三种职责
 
 ## 界面
 
-| 概览 | 换肤 |
+| 概览（深色） | 对局（深色） |
 | --- | --- |
-| ![概览](docs/preview-overview.png) | ![换肤](docs/preview-skins.png) |
+| ![概览](docs/preview-overview.png) | ![对局](docs/preview-match.png) |
 
-| 对局 | 清理 |
+| 换肤（浅色提示） | 清理 |
 | --- | --- |
-| ![对局](docs/preview-match.png) | ![清理](docs/preview-clean.png) |
+| ![换肤](docs/preview-skins.png) | ![清理](docs/preview-clean.png) |
 
 ---
 
 ## 一、启动
 
-双击 **`CS2Workbench.exe`**，浏览器自动打开 `http://127.0.0.1:8787/`。
+双击 **`CS2 Workbench v1.0.2.exe`**，浏览器自动打开 `http://127.0.0.1:8787/`。
 
 - 单文件，不需要装 Python；里面已经带了 Metamod / CounterStrikeSharp / 两套插件
 - **模组来源优先用你自己那份** `D:\Klay\Downloads\CS2BotImprover`（你在 Panel.exe 里改的参数会直接生效）；找不到时才用 exe 内嵌的模组包，并解到 `mods/`（约 170 MB，只解一次）
 - 运行时数据（`state.json`、`ledger.json`、`backup/`）也放在 exe 旁边；目录不可写时自动改用 `%LOCALAPPDATA%\CS2Workbench`
 - 再双击一次不会开第二个进程，只会把已经打开的页面调出来
-- 关掉页面不会停服务，点右下角 **退出** 或结束 `CS2Workbench.exe` 进程
+- 关掉页面不会停服务，点右下角 **退出** 或结束 `CS2 Workbench v1.0.2.exe` 进程
 - 双击启动的 exe 是**独立进程**（父进程是 explorer），关掉终端、关掉任何宿主程序都不影响服务；`start.bat` 用 `start` 拉起，同样不留依赖
 - 万一服务真的被结束了，页面不会只甩一个 `Failed to fetch`：顶部会弹出白色提示条，页面变暗暂停，**每 2.5 秒自动重连**，服务一回来就自动接回原来的状态（也可以点提示条右侧「立即重试」，或重新双击 exe）
 - 想从终端启动又不希望随终端关闭：`set WB_DETACH=1` 再运行，exe 会用 `DETACHED_PROCESS` + `CREATE_BREAKAWAY_FROM_JOB` 把自己重新拉成独立进程
@@ -46,7 +53,7 @@
 不用 `schtasks` / 计划任务，不用管理员权限，也不会往系统里塞服务。判断是否真的独立了：
 
 ```powershell
-Get-CimInstance Win32_Process -Filter "Name='CS2Workbench.exe'" |
+Get-CimInstance Win32_Process -Filter "Name='CS2 Workbench v1.0.2.exe'" |
   Select-Object ProcessId, ParentProcessId
 # 第一层父进程应该是 explorer.exe
 ```
@@ -80,17 +87,24 @@ steam.exe -applaunch 730 -insecure -console -novid +exec wb_match.cfg +game_type
 
 ---
 
-## 三、三种模式在改什么
+## 三、四种模式在改什么
 
 模式切换的核心是 `game/csgo/gameinfo.gi` 里的 `SearchPaths`：
 
 | 模式 | gameinfo | `-insecure` | 人机 AI | 换肤 |
 | --- | --- | --- | --- | --- |
-| 离线人机 | 挂载 `csgo/overrides/botprofile.vpk` + `csgo/addons/metamod` | 需要 | 强化 | 可用 |
+| 离线全功能 | 挂载 `csgo/overrides/botprofile.vpk` + `csgo/addons/metamod` | 需要 | 插件强化（最强） | 可用 |
+| 强化人机（免插件） | **只**挂 `csgo/overrides/botprofile.vpk` | 需要 | botprofile 覆盖（反应/准度/行为树） | 不可用（要插件） |
 | 仅换肤 | 只挂载 `csgo/addons/metamod` | 需要 | 原版（机器人插件被移到 `plugins_off/`） | 可用 |
 | 在线原版 | 官方原样 | 不要 | 无 | 无 |
 
-「离线人机」还会把 `overrides/<难度>/botprofile.vpk` 复制成 `overrides/botprofile.vpk`，这就是低 / 中 / 高三个难度的真实来源。
+「离线全功能」和「强化人机（免插件）」都会把 `overrides/<难度>/botprofile.vpk` 复制成 `overrides/botprofile.vpk`，这就是低 / 中 / 高三个难度的真实来源。
+
+### 为什么会有「免插件」这一档
+
+`overrides/botprofile.vpk` 里装的是 `botprofile.db`（机器人属性表）和 `scripts/ai/{retakes,rush}/*` 行为树，引擎通过虚拟文件系统直接读取——**不需要 Metamod、不需要 CounterStrikeSharp**。所以游戏本体更新、插件全部失效时，这一档依然能让机器人的反应、准度和行为树回到强化档位。
+
+插件的部分（战术配合、买枪逻辑、投掷物、服务器端换肤）绕不开 Metamod + CSSharp，只能等上游适配；工作台会在「运行时与兼容性」里说明，并提供「检查模组更新 → 恢复完整模组」。
 
 **要打官方匹配，不要只用「恢复正常在线模式」——请到「清理」页点「一键删除全部模组文件」**，它会把整个 `addons/` 和 `overrides/` 移走，并把被模组覆盖过的 `cfg/gamemode_*.cfg`、`gameinfo.gi` 还原成官方内容。
 
@@ -224,6 +238,21 @@ steam.exe -applaunch 730 -insecure -console -novid +exec wb_match.cfg +game_type
 - 更新游戏后模组可能失效，重新点「安装 / 更新模组」
 - 需要 .NET 运行时随 CSSharp 一起分发，无需额外安装
 
+**装回模组后 CS2 直接闪退（v1.0.2 起有专门处理）**
+
+这是「游戏更新跑在模组前面」的典型现象：CS2 每次大版本更新都会改引擎内部结构，Metamod / CounterStrikeSharp / BotController 这些二进制插件必须等作者重新适配（`CS2-Bot-Improver` 的 issue 里每次更新都会有一批同样的报告）。
+
+工作台现在的做法：
+
+1. **对局页顶部有「模组兼容性」**：读出 `game/csgo/steam.inf` 的游戏版本（如 `1.42.0.1（2026-11-23）`）和模组二进制的构建日期（如 `2026-11-21`），游戏比模组新就直接标「待适配」
+2. **启动看护**：点「启动」后后台盯 3 分钟，一旦 CS2 在启动阶段崩掉，会从 Windows 事件日志里读出错模块（例如 `tier0.dll 0xc0000005`）记进状态
+3. **自动隔离**：确认崩溃后自动把 `gameinfo.gi` 里的 metamod 挂载摘掉（**模组文件一个都不删**），于是游戏立刻回到「能正常进」的原版状态，面板上标「不兼容 / 已自动隔离」
+4. **原版启动**：一键摘挂载 + 直接开局，练枪、打原版人机随时可用
+5. **恢复模组挂载**：上游适配后（或你自己换了新版本模组）一键装回，顺手跑一遍自检
+6. **检查模组更新**：直接查 GitHub 最新 release，告诉你本地模组日期和上游发布日期的差距
+
+> 崩溃信息会写进「日志」页，方便把 `错误模块 + 偏移` 直接贴给模组作者。
+
 **点「一键删除」没反应？**
 - 先关掉 CS2（文件被占用时删不掉）
 - 看「日志」页的错误行，通常是权限问题（用管理员身份运行 exe）
@@ -237,7 +266,7 @@ steam.exe -applaunch 730 -insecure -console -novid +exec wb_match.cfg +game_type
 
 ```
 CS2-Workbench/
-├─ CS2Workbench.exe       双击即用（自带 web / data / 模组包）
+├─ CS2 Workbench v1.0.2.exe   双击即用（自带 web / data / 模组包）
 ├─ start.bat              备用启动（有 exe 就调 exe，否则跑源码）
 ├─ server.py              本地服务端（标准库，无依赖）
 ├─ state.json             运行状态（模式、难度、对局参数、库存模型、官网缓存）

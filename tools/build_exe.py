@@ -12,6 +12,7 @@ exe 同目录的 mods/ 下，因此不再需要旁边的 CS2BotImprover 文件�
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,19 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 DIST = ROOT / "dist"
 MODS_PARENT = ROOT.parent
+
+
+def app_version() -> str:
+    """版本号只认 server.py 里的 APP_VERSION，避免打包名和界面显示对不上。"""
+    try:
+        text = (ROOT / "server.py").read_text(encoding="utf-8")
+        found = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+        return found.group(1) if found else "1.0.0"
+    except OSError:
+        return "1.0.0"
+
+
+APP_NAME = f"CS2 Workbench v{app_version()}"
 
 # 打进包里的模组（不含 Panel.exe、旧面板备份）
 BOT = MODS_PARENT / "CS2BotImprover"
@@ -89,7 +103,7 @@ def build() -> None:
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--onefile", "--noconsole",
-        "--name", "CS2Workbench",
+        "--name", APP_NAME,
         "--distpath", str(ROOT),
         "--workpath", str(BUILD / "work"),
         "--specpath", str(BUILD),
@@ -103,7 +117,7 @@ def build() -> None:
 
     print("运行：" + " ".join(cmd))
     subprocess.run(cmd, check=True)
-    exe = ROOT / "CS2Workbench.exe"
+    exe = ROOT / f"{APP_NAME}.exe"
     if exe.exists():
         print(f"\n完成 → {exe}（{exe.stat().st_size / 1048576:.1f} MB）")
     else:

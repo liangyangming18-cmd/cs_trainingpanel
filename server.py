@@ -213,13 +213,18 @@ BOT_PLUGINS = [
 
 MODES = {
     "offline": {
-        "label": "离线人机",
-        "desc": "强化 AI + 换肤，需要 -insecure 启动",
+        "label": "离线全功能",
+        "desc": "强化 AI 插件 + 换肤，需要 -insecure；要求插件已适配当前 CS2",
         "gameinfo": "withbots",
+    },
+    "boost": {
+        "label": "强化人机（免插件）",
+        "desc": "只挂 botprofile 覆盖，不加载任何插件；游戏更新后依然可用",
+        "gameinfo": "boost",
     },
     "skin": {
         "label": "仅换肤",
-        "desc": "保留原版机器人，只开换肤",
+        "desc": "保留原版机器人，只开换肤插件",
         "gameinfo": "skin",
     },
     "online": {
@@ -288,6 +293,8 @@ DEFAULT_STATE = {
     "skinSource": "site",
     "siteCache": {"at": "", "counts": {}, "steamId": ""},
     "inventory": {"2": {}, "3": {}},
+    "guard": {"broken": False, "at": "", "module": "", "offset": "", "code": "",
+              "suspended": False, "suspendedAt": "", "lastLaunch": "", "note": ""},
     "log": [],
 }
 
@@ -494,6 +501,10 @@ def health(state: dict, paths: dict) -> dict:
         result["gameinfo"] = "offline"
     elif has_meta:
         result["gameinfo"] = "skin"
+    elif has_override:
+        result["gameinfo"] = "boost"
+    elif (state.get("guard") or {}).get("suspended"):
+        result["gameinfo"] = "suspended"
     elif gameinfo:
         result["gameinfo"] = "online"
 
@@ -972,6 +983,7 @@ def uninstall(state: dict, paths: dict) -> dict:
             pass
 
     state["mode"] = "online"
+    state.setdefault("guard", {}).update({"broken": False, "suspended": False, "note": ""})
     ledger.save()
     leftovers = [e for e in OWNED_ENTRIES if (csgo / e).exists()]
     log(state, f"已还原官方状态：删除 {removed_files} 个模组文件（约 {freed / 1048576:.1f} MB），还原 {restored_files} 个本体文件")
@@ -1022,6 +1034,10 @@ def gameinfo_text(kind: str) -> str:
         raise RuntimeError("找不到 gameinfo.gi 模板（请先重新部署模组）")
     if kind == "skin":
         text = re.sub(r"[ \t]*Game[ \t]+csgo/overrides/botprofile\.vpk[ \t]*\r?\n(?:[ \t]*\r?\n)?", "", text)
+    elif kind == "boost":
+        # 免插件强化：保留 botprofile.vpk 覆盖，只摘掉 metamod 挂载。
+        # botprofile.db 与 scripts/ai/* 由引擎的虚拟文件系统直接读取，不需要任何插件。
+        text = re.sub(r"[ \t]*Game[ \t]+csgo/addons/metamod[ \t]*\r?\n(?:[ \t]*\r?\n)?", "", text)
     return text
 
 
@@ -1069,8 +1085,16 @@ def set_mode(state: dict, paths: dict, mode: str) -> None:
     ledger.save()
     if mode == "skin":
         set_plugins_enabled(state, paths, False)
+    elif mode == "boost":
+        # 免插件模式：插件文件原样留在盘上（不删不移），只是不挂载 → 永远不会被加载
+        pass
     else:
         set_plugins_enabled(state, paths, True)
+    if mode in ("offline", "boost"):
+        guard = state.setdefault("guard", {})
+        if guard.get("suspended"):
+            guard["suspended"] = False
+            guard["note"] = ""
     state["mode"] = mode
     log(state, f"已切换模式：{MODES[mode]['label']}")
 
@@ -1169,6 +1193,25 @@ def cfg_body(state: dict, include_plugin_cmds: bool = True) -> str:
         "invsim_require_inventory 0",
         "",
     ]
+    if state.get("mode") == "boost":
+        # 免插件模式：插件专属 cvar 一条都不写，否则控制台满屏 Unknown command
+        kept: list[str] = []
+        skipping = False
+        for line in lines:
+            if line.startswith("// ---- Inventory Simulator") or "BotAimImprover" in line or "机器人买什么" in line:
+                skipping = True
+                continue
+            if skipping:
+                continue
+            if line.startswith(("bot_loadout", "bot_aim", "bot_nades")):
+                continue
+            kept.append(line)
+        kept += [
+            "// 免插件强化模式：机器人强度由 overrides/botprofile.vpk 决定",
+            "// （botprofile.db + scripts/ai 行为树，引擎直接读取，不需要插件）",
+            "",
+        ]
+        lines = kept
     return "\n".join(lines)
 
 
@@ -1179,7 +1222,8 @@ def match_cfg_text(state: dict) -> str:
     head = ["// 启动时执行", ""]
     if mode in GAMEMODES and GAMEMODES[mode]["cfg"]:
         head.append(f"exec {GAMEMODES[mode]['cfg']}")
-    head.append(f"exec {BOT_PRESETS[preset]['file'][:-4]}  // 机器人预设：{BOT_PRESETS[preset]['label']}")
+    if state.get("mode") != "boost":
+        head.append(f"exec {BOT_PRESETS[preset]['file'][:-4]}  // 机器人预设：{BOT_PRESETS[preset]['label']}")
     head.append("")
     return "\n".join(head) + body
 
@@ -1193,7 +1237,8 @@ def server_cfg_text(state: dict) -> str:
     ]
     if mode in GAMEMODES and GAMEMODES[mode]["cfg"]:
         head.append(f"exec {GAMEMODES[mode]['cfg']}")
-    head += [f"exec {BOT_PRESETS[preset]['file'][:-4]}  // CS2BotImprover 预设：{BOT_PRESETS[preset]['label']}", ""]
+    if state.get("mode") != "boost":
+        head += [f"exec {BOT_PRESETS[preset]['file'][:-4]}  // CS2BotImprover 预设：{BOT_PRESETS[preset]['label']}", ""]
     return "\n".join(head) + cfg_body(state)
 
 
@@ -1464,6 +1509,20 @@ def hydrate_from_bot_cfg(state: dict, paths: dict) -> dict:
 def _ensure_gameinfo(state: dict, paths: dict, ledger: Ledger, fixed: list, missing: list) -> None:
     csgo = paths["csgo"]
     kind = MODES.get(state.get("mode", "offline"), MODES["offline"])["gameinfo"]
+    if kind == "boost":
+        # 免插件强化：必须是「有 overrides 覆盖、无 metamod」，且不受隔离状态影响
+        target = csgo / "gameinfo.gi"
+        text = read_text(target)
+        if "csgo/addons/metamod" in text or "csgo/overrides/botprofile.vpk" not in text:
+            try:
+                ledger.put_text(target, gameinfo_text("boost"))
+                fixed.append("gameinfo 切到免插件强化挂载")
+            except Exception as exc:  # noqa: BLE001
+                missing.append(f"gameinfo 模板（{exc}）")
+        return
+    if (state.get("guard") or {}).get("suspended"):
+        # 隔离状态：用户/守护主动摘掉了模组挂载，自检不要再装回去
+        return
     target = csgo / "gameinfo.gi"
     text = read_text(target)
     has_meta = "csgo/addons/metamod" in text
@@ -1536,7 +1595,7 @@ def _ensure_plugins(state: dict, paths: dict, ledger: Ledger, fixed: list, missi
 
 def _ensure_difficulty(state: dict, paths: dict, ledger: Ledger, fixed: list, missing: list) -> None:
     level = state.get("difficulty", "Medium")
-    if state.get("mode") != "offline" or level not in DIFFICULTY_LABEL:
+    if state.get("mode") not in ("offline", "boost") or level not in DIFFICULTY_LABEL:
         return
     vpk_dir = paths["csgo"] / "overrides"
     active = vpk_dir / "botprofile.vpk"
@@ -1799,8 +1858,12 @@ def pull_site_inventory(state: dict, steam_id: str) -> dict:
 
 def build_launch_args(state: dict, paths: dict) -> list[str]:
     m = state["match"]
+    suspended = bool((state.get("guard") or {}).get("suspended")) and state.get("mode") != "boost"
     args = ["-insecure", "-console", "-novid"]
-    args += ["+exec", "wb_match.cfg"]
+    if not suspended:
+        # 隔离模式（模组已挂起）下不 exec 模组 cfg，免得满屏 unknown command；
+        # 免插件强化模式要 exec，bot_quota / bot_allow_grenades 这些是官方 cvar
+        args += ["+exec", "wb_match.cfg"]
     if m.get("gamemode") in GAMEMODES:
         mode = GAMEMODES[m["gamemode"]]
         args += ["+game_type", str(mode["gt"]), "+game_mode", str(mode["gm"])]
@@ -1814,20 +1877,46 @@ def build_launch_args(state: dict, paths: dict) -> list[str]:
 
 def launch(state: dict, paths: dict, use_steam: bool = True) -> dict:
     if state.get("mode") == "online":
-        raise RuntimeError("当前是「在线原版」模式，请先切换到离线人机或仅换肤模式")
+        raise RuntimeError("当前是「在线原版」模式，请先切到「强化人机（免插件）」或「离线全功能」")
+    guard = state.setdefault("guard", {})
+    auto_boost = False
+    if state.get("mode") == "offline":
+        # 真机验证过：完整模组在游戏更新后会在启动 15 秒左右崩在 tier0，
+        # 这时自动退到「免插件强化」——botprofile 覆盖照旧生效，游戏也不会崩。
+        if compat_report(state, paths).get("status") == "broken":
+            set_mode(state, paths, "boost")
+            auto_boost = True
+            log(state, "完整模组与当前 CS2 不兼容，已自动切到「强化人机（免插件）」，"
+                       "机器人手感仍按所选难度覆盖生效", "error")
+    if guard.get("suspended") and state.get("mode") != "boost":
+        # 模组被挂起（上次崩溃后自动隔离）：不再做模组自检，直接按原版开局
+        write_cfgs(state, paths)
+        args = build_launch_args(state, paths)
+        result = _spawn_game(paths, args, use_steam)
+        log(state, "模组处于隔离状态，按原版启动：" + " ".join(args))
+        start_guard_watch(state)
+        return result
     # 开局前先自检：gameinfo 挂载、插件目录、难度 vpk 有问题就先补好，
     # 免得点了「启动」进游戏却是原版 bot + 没皮肤
     check = ensure_ready(state, paths, repair=True, quiet=True)
-    if check.get("missing"):
+    if check.get("missing") and state.get("mode") != "boost":
         raise RuntimeError("环境不完整：" + "、".join(check["missing"]) + "；请先点「安装 / 更新模组」")
     write_cfgs(state, paths)
-    if state["mode"] == "offline" and state.get("difficulty"):
+    if state["mode"] in ("offline", "boost") and state.get("difficulty"):
         vpk = paths["csgo"] / "overrides" / "botprofile.vpk"
         level = paths["csgo"] / "overrides" / state["difficulty"] / "botprofile.vpk"
         if level.exists() and (not vpk.exists() or sha(vpk) != sha(level)):
             set_difficulty(state, paths, state["difficulty"])
 
     args = build_launch_args(state, paths)
+    result = _spawn_game(paths, args, use_steam)
+    result["autoBoost"] = auto_boost
+    log(state, "已启动 CS2：" + " ".join(args))
+    start_guard_watch(state)
+    return result
+
+
+def _spawn_game(paths: dict, args: list[str], use_steam: bool = True) -> dict:
     if use_steam and paths.get("steamExe"):
         cmd = [str(paths["steamExe"]), "-applaunch", "730"] + args
         cwd = str(paths["steamExe"].parent)
@@ -1835,8 +1924,348 @@ def launch(state: dict, paths: dict, use_steam: bool = True) -> dict:
         cmd = [str(paths["exe"])] + args
         cwd = str(paths["exe"].parent)
     subprocess.Popen(cmd, cwd=cwd, close_fds=True)
-    log(state, "已启动 CS2：" + " ".join(args))
     return {"command": cmd}
+
+
+# --------------------------------------------------------------------------
+# 版本兼容性：游戏版本 vs 模组构建时间
+# --------------------------------------------------------------------------
+
+APP_VERSION = "1.0.2"
+
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))}
+
+
+def _parse_version_date(text: str) -> str:
+    """把 'Nov 23 2026' 之类转成 2026-11-23，失败返回空串。"""
+    parts = (text or "").replace(",", " ").split()
+    if len(parts) >= 3 and parts[0] in _MONTHS:
+        try:
+            return f"{int(parts[2]):04d}-{_MONTHS[parts[0]]:02d}-{int(parts[1]):02d}"
+        except ValueError:
+            return ""
+    return ""
+
+
+def _read_kv(path: Path) -> dict:
+    data: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            # VDF（appmanifest_730.acf）是 "键"  "值"，steam.inf 是 键=值
+            vdf = re.match(r'\s*"([^"]+)"\s+"([^"]*)"', line)
+            if vdf:
+                data[vdf.group(1)] = vdf.group(2)
+                continue
+            if "=" in line and not line.strip().startswith("//"):
+                key, value = line.split("=", 1)
+                data[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return data
+
+
+def game_build(paths: dict) -> dict:
+    csgo = paths.get("csgo")
+    if not csgo:
+        return {"version": "", "patch": "", "date": "", "build": "", "label": "未找到 CS2"}
+    inf = _read_kv(csgo / "steam.inf")
+    patch = inf.get("PatchVersion", "")
+    date = _parse_version_date(inf.get("VersionDate", ""))
+    build_id = ""
+    try:
+        manifest = csgo.parents[3] / "appmanifest_730.acf"
+        build_id = _read_kv(manifest).get("buildid", "")
+    except Exception:
+        build_id = ""
+    label = patch or inf.get("ClientVersion", "") or "未知版本"
+    return {"version": label, "patch": patch, "date": date, "build": build_id,
+            "label": f"{label}" + (f"（{date}）" if date else "")}
+
+
+def _file_version(path: Path) -> str:
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        size = ctypes.windll.version.GetFileVersionInfoSizeW(str(path), None)
+        if not size:
+            return ""
+        buf = ctypes.create_string_buffer(size)
+        if not ctypes.windll.version.GetFileVersionInfoW(str(path), 0, size, buf):
+            return ""
+        ptr = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not ctypes.windll.version.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(length)):
+            return ""
+
+        class Fixed(ctypes.Structure):
+            _fields_ = [("sig", wintypes.DWORD), ("struc", wintypes.DWORD),
+                        ("ms", wintypes.DWORD), ("ls", wintypes.DWORD),
+                        ("pms", wintypes.DWORD), ("pls", wintypes.DWORD),
+                        ("mask", wintypes.DWORD), ("flags", wintypes.DWORD),
+                        ("os", wintypes.DWORD), ("type", wintypes.DWORD),
+                        ("sub", wintypes.DWORD), ("dms", wintypes.DWORD), ("dls", wintypes.DWORD)]
+        info = ctypes.cast(ptr, ctypes.POINTER(Fixed)).contents
+        numeric = f"{info.ms >> 16}.{info.ms & 0xFFFF}.{info.ls >> 16}.{info.ls & 0xFFFF}"
+        # 版本字符串（2.0.0-dev+1490 这种）在 StringFileInfo 里，优先用它
+        for lang in ("040904b0", "000004b0", "040904e4"):
+            sub = "\\StringFileInfo\\" + lang + "\\ProductVersion"
+            if not ctypes.windll.version.VerQueryValueW(buf, sub, ctypes.byref(ptr), ctypes.byref(length)):
+                continue
+            text = ctypes.wstring_at(ctypes.cast(ptr, ctypes.c_void_p).value) or ""
+            text = text.strip().strip("\x00")
+            if text:
+                return text
+        return numeric
+    except Exception:
+        return ""
+
+
+def mod_build() -> dict:
+    newest = 0.0
+    try:
+        for item in (PKG_BOT / "addons").rglob("*.dll"):
+            try:
+                newest = max(newest, item.stat().st_mtime)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    date = time.strftime("%Y-%m-%d", time.localtime(newest)) if newest else ""
+    return {
+        "date": date,
+        "cssharp": package_cssharp_version(),
+        "metamod": _file_version(PKG_BOT / "addons" / "metamod" / "bin" / "win64" / "metamod.2.cs2.dll"),
+        "dir": str(PKG_BOT),
+    }
+
+
+def compat_report(state: dict, paths: dict) -> dict:
+    """游戏版本 / 模组构建时间 / 已知崩溃，三合一的兼容性结论。"""
+    game = game_build(paths)
+    mod = mod_build()
+    guard = state.get("guard") or {}
+    broken = bool(guard.get("broken"))
+    stale = bool(game.get("date") and mod.get("date") and game["date"] > mod["date"])
+    if broken:
+        status = "broken"
+        title = "模组与当前 CS2 版本不兼容"
+        detail = (f"上次启动崩溃在 {guard.get('module') or '未知模块'}"
+                  f"{(' + ' + str(guard.get('offset'))) if guard.get('offset') else ''}。"
+                  f"游戏已更新到 {game['label']}，而模组最后构建于 {mod.get('date') or '未知'}，"
+                  "插件还没适配这一版。")
+    elif stale:
+        status = "stale"
+        title = "游戏比模组新，可能不兼容"
+        detail = (f"游戏 {game['label']} 晚于模组构建日期 {mod.get('date')}。"
+                  "如果启动后闪退，请点「原版启动」先保住能玩，再等模组更新。")
+    else:
+        status = "ok"
+        title = "版本匹配"
+        detail = f"游戏 {game['label']}，模组构建于 {mod.get('date') or '未知'}，时间上兼容。"
+    return {
+        "status": status, "title": title, "detail": detail,
+        "game": game, "mod": mod,
+        "suspended": bool(guard.get("suspended")),
+        "brokenAt": guard.get("at", ""),
+        "lastLaunch": guard.get("lastLaunch", ""),
+        "app": APP_VERSION,
+    }
+
+
+# --------------------------------------------------------------------------
+# 启动崩溃看护：崩了就自动把模组摘下来，保证游戏永远打得开
+# --------------------------------------------------------------------------
+
+_guard_running = False
+
+
+def _cs2_running() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq cs2.exe", "/NH"],
+                             capture_output=True, timeout=15,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return b"cs2.exe" in out.stdout.lower()
+    except Exception:
+        return False
+
+
+def _crash_since(when: float) -> dict:
+    """查事件日志里 since 之后 cs2.exe 的 APPCRASH 记录（崩溃模块 / 异常码 / 偏移）。"""
+    if os.name != "nt":
+        return {}
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(when - 5))
+    script = (
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+        f"$s=[datetime]::ParseExact('{stamp}','yyyy-MM-ddTHH:mm:ss',$null);"
+        "Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=$s;Id=1000} "
+        "-ErrorAction SilentlyContinue | Where-Object {$_.Message -match 'cs2\\.exe'} "
+        "| Select-Object -First 1 -ExpandProperty Message"
+    )
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                             capture_output=True, timeout=30,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        text = out.stdout.decode("utf-8", "ignore")
+    except Exception:
+        return {}
+    if "cs2.exe" not in text:
+        return {}
+
+    def pick(pattern: str) -> str:
+        found = re.search(pattern, text)
+        return found.group(1) if found else ""
+
+    def short_hex(value: str) -> str:
+        """0x00000000000bc62c → 0xbc62c，日志里不占地方。"""
+        if not value.lower().startswith("0x"):
+            return value
+        digits = value[2:].lstrip("0") or "0"
+        return "0x" + digits.lower()
+
+    return {
+        "module": pick(r"(?:错误模块名称|Faulting module name)\s*[:：]\s*([^\s,，|]+)"),
+        "code": pick(r"(?:异常代码|Exception code)\s*[:：]\s*(0x[0-9a-fA-F]+)"),
+        "offset": short_hex(pick(r"(?:错误偏移量|Fault offset)\s*[:：]\s*(0x[0-9a-fA-F]+)")),
+    }
+
+
+def suspend_mods(state: dict, paths: dict, reason: str = "") -> dict:
+    """把 metamod 挂载摘掉（模组文件全部保留），让游戏回到能启动的原版状态。"""
+    csgo = paths.get("csgo")
+    if not csgo:
+        raise RuntimeError("没有找到 CS2 安装目录")
+    target = csgo / "gameinfo.gi"
+    try:
+        text = gameinfo_text("online")
+    except Exception:
+        text = read_text(BACKUP_DIR / "gameinfo.original.gi")
+    if not text or "addons/metamod" in text:
+        raise RuntimeError("找不到不含 metamod 的官方 gameinfo 模板，请用 Steam「验证文件完整性」修复")
+    newline = "\n"
+    try:
+        if "\r\n" in target.read_bytes().decode("utf-8", "ignore"):
+            newline = "\r\n"
+    except OSError:
+        pass
+    ledger = Ledger(csgo)
+    ledger.put_text(target, text, newline=newline)
+    ledger.save()
+    guard = state.setdefault("guard", {})
+    guard["suspended"] = True
+    guard["suspendedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    if reason:
+        guard["note"] = reason
+    log(state, "已临时摘掉模组挂载（模组文件都还在，可一键装回），现在按原版启动")
+    return {"suspended": True}
+
+
+def resume_mods(state: dict, paths: dict) -> dict:
+    guard = state.setdefault("guard", {})
+    guard["suspended"] = False
+    guard["broken"] = False
+    guard["note"] = ""
+    if state.get("mode") == "boost":
+        state["mode"] = "offline"
+        log(state, "已切回「离线全功能」，准备重新挂载插件")
+    check = ensure_ready(state, paths, repair=True, quiet=True)
+    log(state, "已恢复模组挂载" + ("，自检通过" if check.get("ok") else "，自检仍有问题（见日志）"),
+        "info" if check.get("ok") else "error")
+    return {"suspended": False, "selfCheck": check}
+
+
+def start_guard_watch(state: dict) -> None:
+    global _guard_running
+    if _guard_running or os.name != "nt":
+        return
+    _guard_running = True
+    threading.Thread(target=_guard_loop, args=(time.time(),), daemon=True).start()
+
+
+def _guard_loop(since: float) -> None:
+    global _guard_running
+    try:
+        deadline = time.time() + 90
+        appeared = False
+        while time.time() < deadline:
+            if _cs2_running():
+                appeared = True
+                break
+            time.sleep(2)
+        if not appeared:
+            return
+        # 进程起来后看 150 秒：熬过去就算正常启动（后续崩不崩不在守护范围）
+        alive = True
+        deadline = time.time() + 150
+        while time.time() < deadline:
+            time.sleep(3)
+            if not _cs2_running():
+                alive = False
+                break
+        if alive:
+            with _lock:
+                state = load_state()
+                state.setdefault("guard", {})["lastLaunch"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                save_state(state)
+            return
+        crash = _crash_since(since)
+        with _lock:
+            state = load_state()
+            guard = state.setdefault("guard", {})
+            if not crash:
+                # 正常退出（进菜单后自己关掉）或者事件日志没记录：不改判定
+                save_state(state)
+                return
+            guard.update({
+                "broken": True,
+                "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "module": crash.get("module", ""),
+                "offset": crash.get("offset", ""),
+                "code": crash.get("code", ""),
+                "lastLaunch": "崩溃",
+            })
+            log(state, "CS2 启动崩溃：" + (guard["module"] or "未知模块")
+                + " " + (guard["code"] or "") + " " + (guard["offset"] or "")
+                + " → 当前游戏版本与模组不兼容", "error")
+            if not guard.get("suspended"):
+                try:
+                    suspend_mods(state, resolve_paths(state), reason="启动崩溃后自动隔离")
+                except Exception as exc:  # noqa: BLE001
+                    log(state, f"自动隔离模组失败：{exc}", "error")
+            save_state(state)
+    finally:
+        _guard_running = False
+
+
+def check_mod_update() -> dict:
+    """查上游最新版本，用来判断「等模组适配」有没有新东西可装。"""
+    page = "https://github.com/ed0ard/CS2-Bot-Improver/releases"
+    req = urllib.request.Request(
+        "https://api.github.com/repos/ed0ard/CS2-Bot-Improver/releases/latest",
+        headers={"User-Agent": f"CS2Workbench/{APP_VERSION}", "Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8", "ignore"))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"查询失败：{exc}", "page": page}
+    published = (data.get("published_at") or "")[:10]
+    local = mod_build().get("date", "")
+    return {
+        "ok": True,
+        "latest": data.get("tag_name", ""),
+        "published": published,
+        "local": local,
+        "newer": bool(published and local and published > local),
+        "page": data.get("html_url") or page,
+        "notes": (data.get("body") or "").strip()[:600],
+    }
+
+
 
 
 # --------------------------------------------------------------------------
@@ -1992,7 +2421,7 @@ MIME = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CS2Workbench/1.0"
+    server_version = "CS2Workbench/" + APP_VERSION
 
     def log_message(self, fmt, *args):  # noqa: A003
         pass
@@ -2153,6 +2582,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pkgInv": str(PKG_INV),
                 "botDir": str(bot_improver_dir(state) or ""),
                 "persist": persist_status(),
+                "compat": compat_report(state, paths),
+                "app": APP_VERSION,
                 "site": SITE_URL,
                 "frozen": FROZEN,
                 "home": str(HOME_DIR),
@@ -2177,6 +2608,8 @@ class Handler(BaseHTTPRequestHandler):
             return {"cs2Root": str(root)}
 
         if route == "/api/install":
+            guard = state.setdefault("guard", {})
+            guard.update({"broken": False, "suspended": False, "note": ""})
             result = install(state, paths)
             # 装完立刻把状态对齐：gameinfo 挂载 + 难度 vpk + 插件 cfg
             result["selfCheck"] = ensure_ready(state, paths, quiet=True)
@@ -2289,6 +2722,28 @@ class Handler(BaseHTTPRequestHandler):
             if "match" in payload:
                 state["match"].update(payload["match"])
             return launch(state, paths, use_steam=bool(payload.get("useSteam", True)))
+
+        if route == "/api/safe-launch":
+            # 原版启动：摘掉 metamod 挂载（模组文件保留），保证一定进得去
+            if "match" in payload:
+                state["match"].update(payload["match"])
+            suspend_mods(state, paths, reason="手动切到原版启动")
+            return launch(state, paths, use_steam=bool(payload.get("useSteam", True)))
+
+        if route == "/api/mods/resume":
+            return resume_mods(state, paths)
+
+        if route == "/api/mods/suspend":
+            return suspend_mods(state, paths, reason="手动隔离模组")
+
+        if route == "/api/compat/check":
+            result = check_mod_update()
+            if result.get("ok"):
+                log(state, f"上游最新版本 {result['latest']}（{result['published']}），"
+                    + ("有更新可装 → " if result.get("newer") else "暂无更新，") + result["page"])
+            else:
+                log(state, result.get("error", "查询更新失败"), "error")
+            return result
 
         if route == "/api/preset":
             # 用目录随机生成一套皮肤
