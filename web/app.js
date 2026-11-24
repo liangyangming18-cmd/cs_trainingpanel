@@ -223,7 +223,7 @@ function renderRail() {
   $("#rail-path").textContent = PATHS.csgo || "未定位安装目录";
   $("#top-mode").textContent = (META.modes[S.mode] || {}).label || S.mode;
   $("#top-diff").textContent = (META.difficulty[S.difficulty] || S.difficulty) + " 难度";
-  const ver = META.app ? "v" + META.app : "v1.0.2";
+  const ver = META.app ? "v" + META.app : "v1.0.3";
   const bv = $("#brand-ver");
   if (bv) bv.textContent = ver;
   document.title = `CS2 Workbench ${ver}`;
@@ -296,6 +296,8 @@ function renderOverview() {
   const checks = [
     ["CS2 目录已定位", HEALTH.found, PATHS.cs2Root || "—"],
     ["Metamod 已安装", HEALTH.metamod, "addons/metamod"],
+    ["CounterStrikeSharp 适配版", !!HEALTH.cssharpAdapted,
+      HEALTH.cssharpVersion ? `已装 ${HEALTH.cssharpVersion}（需 ${((META.compat || {}).minCss) || "1.0.381"}+）` : "未安装"],
     ["gameinfo 已挂载", mounted,
       HEALTH.gameinfo === "boost" ? "免插件模式：只挂 overrides" : "csgo/gameinfo.gi"],
     ["强化 AI 插件在位", HEALTH.plugins.filter((p) => p !== "InventorySimulator").length >= 8, `${HEALTH.plugins.length} 个插件`],
@@ -391,26 +393,42 @@ function renderCompat() {
   const title = $("#compat-title");
   const detail = $("#compat-detail");
 
+  const adapted = !!HEALTH.cssharpAdapted;
+  const cssVer = HEALTH.cssharpVersion || "";
+
   if (boostOn) {
     if (tag) tag.textContent = "免插件强化";
-    if (title) title.textContent = "当前用 botprofile 覆盖强化人机，游戏可以正常进";
-    if (detail) detail.textContent =
-      "机器人手感、反应、行为树由 overrides/botprofile.vpk 提供，走引擎的虚拟文件系统，不需要任何插件。"
-      + "换肤要用 InventorySimulator 插件，等上游适配后再点「恢复完整模组」。";
+    if (title) {
+      title.textContent = adapted
+        ? "插件已适配当前 CS2，可以切回完整模组了"
+        : "当前用 botprofile 覆盖强化人机，游戏可以正常进";
+    }
+    if (detail) {
+      detail.textContent = adapted
+        ? `CounterStrikeSharp ${cssVer} 已适配当前 CS2。点「恢复完整模组」把 Metamod 插件挂回去，换肤和插件级强化会一起生效。`
+        : "机器人手感、反应、行为树由 overrides/botprofile.vpk 提供，走引擎虚拟文件系统，不需要任何插件。";
+    }
   } else if (bad) {
     if (tag) tag.textContent = "不兼容";
     if (title) title.textContent = c.title || "—";
-    if (detail) detail.textContent = (c.detail || "") + " 点下面的按钮可以立刻切到能用的模式。";
+    if (detail) detail.textContent = (c.detail || "") + " 点「更新换肤与插件」装适配版，或先用「免插件强化」保底。";
   } else {
-    if (tag) tag.textContent = warn ? "待适配" : "正常";
+    if (tag) tag.textContent = adapted ? "已适配" : warn ? "待适配" : "正常";
     if (title) title.textContent = c.title || "—";
     if (detail) detail.textContent = c.detail || "";
+  }
+
+  const fixBtn = $("#compat-fix");
+  if (fixBtn) {
+    fixBtn.disabled = adapted && !HEALTH.botHider;
+    fixBtn.textContent = adapted && !HEALTH.botHider ? "插件已是适配版" : "更新换肤与插件";
+    fixBtn.title = adapted && !HEALTH.botHider ? `当前 CounterStrikeSharp ${cssVer}` : "";
   }
 
   const boostBtn = $("#compat-boost");
   if (boostBtn) {
     boostBtn.disabled = boostOn;
-    boostBtn.textContent = boostOn ? "已是免插件强化" : "切到强化人机（免插件）";
+    boostBtn.textContent = boostOn ? "已是免插件强化" : "免插件强化";
   }
   // 免插件模式本来就不加载任何插件，再做「原版启动」没有意义
   const safeBtn = $("#compat-safe");
@@ -419,22 +437,29 @@ function renderCompat() {
     safeBtn.title = boostOn ? "当前模式已不加载插件，无需再隔离" : "";
   }
 
-  // 换肤依赖插件：只要插件没挂载（免插件强化 / 挂起 / 在线原版），就在换肤页说清楚
+  // 换肤依赖插件：插件没挂载或版本不适配时才提示，并给一键修复入口
   const block = $("#skin-block");
   if (block) {
     const pluginsOff = HEALTH.gameinfo !== "offline" && HEALTH.gameinfo !== "skin";
     block.classList.toggle("is-hidden", !pluginsOff);
+    if (pluginsOff) {
+      const t = $("#skin-block-t");
+      const d = $("#skin-block-d");
+      if (t) t.textContent = adapted ? "换肤需要先挂回插件" : "换肤插件还没就绪";
+      if (d) d.textContent = adapted
+        ? `CounterStrikeSharp ${cssVer} 已适配，但当前模式没有挂载 Metamod。点「恢复完整模组」后启动游戏即可换肤。`
+        : "皮肤由 InventorySimulator 插件在服务器端下发，需要 Metamod + CounterStrikeSharp 正常加载。点下面按钮更新到适配版。";
+    }
   }
 
   const g = c.game || {};
   const m = c.mod || {};
   const bits = [
     `游戏 ${g.version || "?"}${g.date ? `（${g.date}）` : ""}`,
-    `模组 ${m.date || "?"}`,
-    m.cssharp ? `CSSharp ${m.cssharp}` : "",
-    m.metamod ? `Metamod ${m.metamod}` : "",
+    `CSSharp 已装 ${cssVer || "未知"}${adapted ? "（适配）" : `（需 ${c.minCss || "1.0.381"}+）`}`,
+    `Metamod ${m.metamod || "?"}`,
     boostOn ? "运行时：免插件强化" : c.suspended ? "模组已挂起" : "模组已挂载",
-    `工作台 v${c.app || META.app || "1.0.2"}`,
+    `工作台 v${c.app || META.app || "1.0.3"}`,
   ].filter(Boolean);
   $("#compat-ver").textContent = bits.join(" · ");
 }
@@ -872,7 +897,7 @@ function renderActionbar() {
   const modeLabel = (META.modes[S.mode] || {}).label || S.mode;
   $("#ab-mode").textContent = modeLabel;
   const m = S.match;
-  const ver = META.app ? "v" + META.app : "v1.0.2";
+  const ver = META.app ? "v" + META.app : "v1.0.3";
   $("#ab-meta").textContent =
     `${m.map} · ${(META.gamemodes[m.gamemode] || {}).label || m.gamemode} · ${META.difficulty[S.difficulty] || S.difficulty} · -insecure · ${ver}`;
   const btn = $("#ab-launch");
@@ -1116,6 +1141,24 @@ function bind() {
       r.page,
     ].join("\n"));
   });
+
+  // 兼容性：一键把换肤/强化插件更新到适配当前 CS2 的版本
+  async function repairPlugins() {
+    const btn = $("#compat-fix");
+    if (btn) btn.disabled = true;
+    const data = await api("/api/plugins/repair", {});
+    if (btn) btn.disabled = false;
+    if (!data) return;
+    const r = data.result || {};
+    const check = r.selfCheck || {};
+    toast(r.adapted
+      ? `插件已更新到 CounterStrikeSharp ${r.cssharp}，重启游戏即可换肤与强化`
+      : `插件已写入（${r.cssharp || "未知"}），但自检仍有问题，看日志`, !r.adapted || !check.ok);
+    await boot();
+  }
+  $("#compat-fix").addEventListener("click", repairPlugins);
+  const skinFix = $("#skin-fix");
+  if (skinFix) skinFix.addEventListener("click", repairPlugins);
 
   // 兼容性：原版启动（摘掉模组挂载，保证进得去）
   $("#compat-safe").addEventListener("click", async () => {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CS2 Workbench v1.0.2</title>
+<title>CS2 Workbench v1.0.3</title>
 <link rel="stylesheet" href="/web/theme.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
       <div class="brand-mark">CS2</div>
       <div class="brand-txt">
         <div class="brand-name">Workbench</div>
-        <div class="brand-ver" id="brand-ver">v1.0.2</div>
+        <div class="brand-ver" id="brand-ver">v1.0.3</div>
       </div>
     </div>
 
@@ -107,8 +107,9 @@
             </div>
             <p class="field-note" id="compat-detail">—</p>
             <div class="row-actions">
-              <button class="btn btn-accent keep-case" id="compat-boost">切到强化人机（免插件）</button>
+              <button class="btn btn-accent keep-case" id="compat-fix">更新换肤与插件</button>
               <button class="btn keep-case" id="compat-reload">恢复完整模组</button>
+              <button class="btn keep-case" id="compat-boost">免插件强化</button>
               <button class="btn btn-subtle keep-case" id="compat-check">检查模组更新</button>
               <button class="btn btn-subtle keep-case" id="compat-safe">原版启动</button>
             </div>
@@ -280,12 +281,12 @@
         <div class="notice is-hidden" id="skin-block">
           <div class="notice-ico">!</div>
           <div class="notice-body">
-            <div class="notice-t">换肤需要 InventorySimulator 插件，当前游戏版本加载不了插件</div>
-            <div class="notice-d">皮肤是服务器端下发的，必须由插件改写库存；而插件依赖 Metamod + CounterStrikeSharp，
-              这两者还没适配当前这版 CS2。可以先在「对局」页用「强化人机（免插件）」保证打得动，
-              上游发布新版本后点下面按钮一键恢复。</div>
+            <div class="notice-t" id="skin-block-t">换肤插件还没就绪</div>
+            <div class="notice-d" id="skin-block-d">皮肤由 InventorySimulator 插件在服务器端下发，需要 Metamod + CounterStrikeSharp 正常加载。
+              点下面按钮把插件更新到适配当前 CS2 的版本，然后重启游戏。</div>
           </div>
           <div class="notice-actions">
+            <button class="btn btn-accent keep-case" id="skin-fix">一键更新插件</button>
             <button class="btn btn-subtle keep-case" id="skin-check-update">检查模组更新</button>
           </div>
         </div>

@@ -207,9 +207,12 @@ SITE_URL = "https://inventory.cstrike.app"
 
 # 换肤模式下需要停用的机器人插件
 BOT_PLUGINS = [
-    "BotAI", "BotAimImprover", "BotBuy", "BotControllerImpl", "BotHiderImpl",
+    "BotAI", "BotAimImprover", "BotBuy", "BotControllerImpl",
     "BotRandomizer", "BotState", "NadeSystem", "RoundDamageRecap",
 ]
+
+# 这些插件对应的原生模块未适配 CS2 1.42（进图后崩在 tier0），装完/自检时统一禁用
+BROKEN_PLUGIN_ENTRIES = ("BotHider.vdf", "BotHiderImpl")
 
 MODES = {
     "offline": {
@@ -487,10 +490,14 @@ def health(state: dict, paths: dict) -> dict:
     result["cssharp"] = (cssharp / "bin").is_dir()
     if (cssharp / "api" / "CounterStrikeSharp.API.deps.json").exists():
         result["cssharpVersion"] = plugin_version(cssharp / "api" / "CounterStrikeSharp.API.deps.json")
+    result["cssharpAdapted"] = bool(result["cssharpVersion"]) and \
+        ver_tuple(result["cssharpVersion"]) >= ver_tuple(MIN_CSS_VERSION)
+    result["botHider"] = (csgo / "addons" / "metamod" / "BotHider.vdf").exists()
 
     plugins_dir = cssharp / "plugins"
     if plugins_dir.is_dir():
-        result["plugins"] = sorted(p.name for p in plugins_dir.iterdir() if p.is_dir())
+        result["plugins"] = sorted(p.name for p in plugins_dir.iterdir()
+                                   if p.is_dir() and not p.name.endswith(".off"))
     off_dir = cssharp / "plugins_off"
     result["botPluginsDisabled"] = off_dir.is_dir() and any(off_dir.iterdir())
 
@@ -820,6 +827,24 @@ def install(state: dict, paths: dict) -> dict:
 
     copied = deploy_bot_package(state, csgo, ledger)
 
+    # CS2 1.42 实测：BotHider 原生插件会在进图 20 多秒后崩在 tier0.dll+0xbc62c，
+    # 装完顺手把它和它的 C# 桥接禁用掉（保留文件，改后缀即可随时恢复）。
+    hider_vdf = csgo / "addons" / "metamod" / "BotHider.vdf"
+    if hider_vdf.exists():
+        try:
+            hider_vdf.rename(hider_vdf.with_name("BotHider.vdf.disabled"))
+            log(state, "已禁用 BotHider 原生插件（未适配 CS2 1.42）")
+        except OSError:
+            pass
+    plugins_root = csgo / "addons" / "counterstrikesharp" / "plugins"
+    for name in ("BotHiderImpl", "BotHiderImpl.off"):
+        target = plugins_root / name
+        if name.endswith("Impl") and target.is_dir():
+            try:
+                target.rename(plugins_root / "BotHiderImpl.off")
+            except OSError:
+                pass
+
     # 换肤插件：只并入插件本体与 gamedata，不动 CSSharp 核心
     inv_plugin = PKG_INV / "addons" / "counterstrikesharp" / "plugins" / "InventorySimulator"
     if inv_plugin.is_dir():
@@ -839,6 +864,63 @@ def install(state: dict, paths: dict) -> dict:
     log(state, f"部署完成，写入 {copied} 个文件")
     sanitize_invsim(csgo, state)
     return {"copied": copied, "ledger": ledger_summary(csgo)}
+
+
+def repair_plugins(state: dict, paths: dict) -> dict:
+    """把已装的 CounterStrikeSharp 核心升级到包内的适配版，并禁用会崩的 BotHider。
+
+    只替换核心（bin/api/shared/lang/source/gamedata.json），不动 plugins 与 dotnet，
+    因此换肤/强化插件和用户配置都不会丢。
+    """
+    csgo: Path | None = paths.get("csgo")
+    if not csgo or not csgo.is_dir():
+        raise RuntimeError("没有找到 CS2 安装目录")
+    src = PKG_BOT / "addons" / "counterstrikesharp"
+    if not src.is_dir():
+        raise RuntimeError(f"模组包不完整：{src}")
+    dst = csgo / "addons" / "counterstrikesharp"
+    ledger = Ledger(csgo)
+    copied = 0
+    for sub in ("bin", "api", "shared", "lang", "source"):
+        s = src / sub
+        if not s.is_dir():
+            continue
+        for item in s.rglob("*"):
+            if item.is_file():
+                ledger.put(item, dst / item.relative_to(src))
+                copied += 1
+    gd = src / "gamedata" / "gamedata.json"
+    if gd.exists():
+        ledger.put(gd, dst / "gamedata" / "gamedata.json")
+        copied += 1
+
+    meta = csgo / "addons" / "metamod"
+    meta.mkdir(parents=True, exist_ok=True)
+    for name in ("counterstrikesharp.vdf", "BotController.vdf", "BotVision.vdf"):
+        s = PKG_BOT / "addons" / "metamod" / name
+        if s.exists() and not (meta / name).exists():
+            ledger.put(s, meta / name)
+            copied += 1
+
+    hider = meta / "BotHider.vdf"
+    if hider.exists():
+        try:
+            hider.rename(hider.with_name("BotHider.vdf.disabled"))
+        except OSError:
+            pass
+    plugins_root = dst / "plugins"
+    impl = plugins_root / "BotHiderImpl"
+    if impl.is_dir():
+        try:
+            impl.rename(plugins_root / "BotHiderImpl.off")
+        except OSError:
+            pass
+
+    ledger.save()
+    version = installed_cssharp_version(csgo)
+    log(state, f"插件兼容修复完成：CounterStrikeSharp {version}，写入 {copied} 个文件")
+    return {"copied": copied, "cssharp": version,
+            "adapted": ver_tuple(version) >= ver_tuple(MIN_CSS_VERSION)}
 
 
 def uninstall(state: dict, paths: dict) -> dict:
@@ -1151,8 +1233,9 @@ def cfg_body(state: dict, include_plugin_cmds: bool = True) -> str:
         "// ---- 人机 ----",
         f"bot_quota {m.get('botQuota', 10)}",
         "bot_quota_mode normal",
-        "// bot_difficulty 交给插件的预设文件（那边是 5 + 按 bot 单独算），这里不覆盖",
+        "// bot_difficulty 由上面的「预设内联」块写入（5 + 按 bot 单独算），这里不覆盖",
         "sv_auto_adjust_bot_difficulty 0",
+        "sv_compute_per_bot_difficulty 1",
         "bot_autodifficulty_threshold_high 20.0",
         "bot_autodifficulty_threshold_low -20.0",
         "bot_stop 0",
@@ -1215,6 +1298,41 @@ def cfg_body(state: dict, include_plugin_cmds: bool = True) -> str:
     return "\n".join(lines)
 
 
+def preset_inline_lines(state: dict, preset: str) -> list[str]:
+    """读模组预设 cfg 的原文，用于内联兜底。
+
+    为什么需要内联：`exec my_bot_normal_config` 只有在引擎能解析到文件、且这行没被
+    任何字符污染时才会执行。曾经把它写成 `exec xxx  // 中文注释` 的同一行，
+    CS2 把整行当注释丢掉，结果 bot_difficulty / custom_bot_difficulty 全都没生效，
+    进游戏就是原版人机。现在：exec 单独一行 + 预设内容直接内联，两层保证。
+    """
+    name = BOT_PRESETS[preset]["file"]
+    for base in (bot_cfg_dir(state), PKG_BOT / "cfg"):
+        if not base:
+            continue
+        path = base / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        lines = [ln.rstrip() for ln in text.replace("\r\n", "\n").split("\n")]
+        return [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("//")]
+    return []
+
+
+def preset_block(state: dict, preset: str) -> list[str]:
+    """内联预设（放在工作台自己的设置之前，这样界面上的选择仍然后压生效）。"""
+    if state.get("mode") == "boost":
+        return []
+    lines = preset_inline_lines(state, preset)
+    if not lines:
+        return []
+    name = BOT_PRESETS[preset]["file"]
+    return ["", f"// ---- 机器人预设内联（{name}）：即使 exec 没跑，这些 cvar 也一定生效 ----", *lines, ""]
+
+
 def match_cfg_text(state: dict) -> str:
     body = cfg_body(state)
     mode = state["match"]["gamemode"]
@@ -1223,9 +1341,12 @@ def match_cfg_text(state: dict) -> str:
     if mode in GAMEMODES and GAMEMODES[mode]["cfg"]:
         head.append(f"exec {GAMEMODES[mode]['cfg']}")
     if state.get("mode") != "boost":
-        head.append(f"exec {BOT_PRESETS[preset]['file'][:-4]}  // 机器人预设：{BOT_PRESETS[preset]['label']}")
+        # 注释必须单独一行：exec 后面跟 // 会让整行被当成注释
+        head.append(f"exec {BOT_PRESETS[preset]['file'][:-4]}")
+        head.append(f"// 机器人预设：{BOT_PRESETS[preset]['label']}")
     head.append("")
-    return "\n".join(head) + body
+    parts = ["\n".join(head).rstrip("\n"), "\n".join(preset_block(state, preset)).strip("\n"), body]
+    return "\n\n".join(p for p in parts if p) + "\n"
 
 
 def server_cfg_text(state: dict) -> str:
@@ -1238,8 +1359,11 @@ def server_cfg_text(state: dict) -> str:
     if mode in GAMEMODES and GAMEMODES[mode]["cfg"]:
         head.append(f"exec {GAMEMODES[mode]['cfg']}")
     if state.get("mode") != "boost":
-        head += [f"exec {BOT_PRESETS[preset]['file'][:-4]}  // CS2BotImprover 预设：{BOT_PRESETS[preset]['label']}", ""]
-    return "\n".join(head) + cfg_body(state)
+        head.append(f"exec {BOT_PRESETS[preset]['file'][:-4]}")
+        head.append(f"// CS2BotImprover 预设：{BOT_PRESETS[preset]['label']}")
+    head.append("")
+    parts = ["\n".join(head).rstrip("\n"), "\n".join(preset_block(state, preset)).strip("\n"), cfg_body(state)]
+    return "\n\n".join(p for p in parts if p) + "\n"
 
 
 def sanitize_invsim(csgo: Path, state: dict) -> None:
@@ -1591,6 +1715,17 @@ def _ensure_plugins(state: dict, paths: dict, ledger: Ledger, fixed: list, missi
             parked.rmdir()
         except OSError:
             pass
+    # BotHider 的原生模块未适配当前 CS2，留着会被 CSSharp 加载并拖崩游戏
+    impl = plugins / "BotHiderImpl"
+    if impl.is_dir():
+        try:
+            if (plugins / "BotHiderImpl.off").is_dir():
+                shutil.rmtree(impl)
+            else:
+                impl.rename(plugins / "BotHiderImpl.off")
+            fixed.append("已禁用 BotHiderImpl")
+        except OSError:
+            pass
 
 
 def _ensure_difficulty(state: dict, paths: dict, ledger: Ledger, fixed: list, missing: list) -> None:
@@ -1611,6 +1746,53 @@ def _ensure_difficulty(state: dict, paths: dict, ledger: Ledger, fixed: list, mi
         pass
 
 
+def _ensure_plugins_compat(state: dict, paths: dict, ledger: Ledger, fixed: list, missing: list) -> None:
+    """CounterStrikeSharp 低于适配版就从包内升级；顺手禁用会崩的 BotHider。"""
+    csgo = paths["csgo"]
+    css = csgo / "addons" / "counterstrikesharp"
+    if not css.is_dir():
+        return
+    installed = installed_cssharp_version(csgo)
+    pkg = package_cssharp_version()
+    if installed and pkg and ver_tuple(installed) < ver_tuple(MIN_CSS_VERSION) \
+            and ver_tuple(pkg) >= ver_tuple(MIN_CSS_VERSION):
+        src = PKG_BOT / "addons" / "counterstrikesharp"
+        for sub in ("bin", "api", "shared", "lang", "source"):
+            folder = src / sub
+            if not folder.is_dir():
+                continue
+            for item in folder.rglob("*"):
+                if item.is_file():
+                    ledger.put(item, css / item.relative_to(src))
+        gd = src / "gamedata" / "gamedata.json"
+        if gd.exists():
+            ledger.put(gd, css / "gamedata" / "gamedata.json")
+        fixed.append(f"CounterStrikeSharp {installed} → {pkg}")
+    elif installed and ver_tuple(installed) < ver_tuple(MIN_CSS_VERSION) and not missing:
+        missing.append(f"CounterStrikeSharp {installed} 低于适配版 {MIN_CSS_VERSION}")
+
+    meta = csgo / "addons" / "metamod"
+    hider = meta / "BotHider.vdf"
+    if hider.exists():
+        try:
+            hider.rename(hider.with_name("BotHider.vdf.disabled"))
+            fixed.append("已禁用 BotHider")
+        except OSError:
+            pass
+    impl = css / "plugins" / "BotHiderImpl"
+    if impl.is_dir():
+        try:
+            impl.rename(css / "plugins" / "BotHiderImpl.off")
+        except OSError:
+            pass
+
+    for name in ("counterstrikesharp.vdf", "BotController.vdf", "BotVision.vdf"):
+        s = PKG_BOT / "addons" / "metamod" / name
+        if s.exists() and not (meta / name).exists():
+            ledger.put(s, meta / name)
+            fixed.append(name)
+
+
 def ensure_ready(state: dict, paths: dict, repair: bool = True, quiet: bool = False) -> dict:
     """环境自检（可自动修复）。返回 fixed / missing，界面上直接能看到修了什么。"""
     csgo = paths.get("csgo")
@@ -1619,7 +1801,7 @@ def ensure_ready(state: dict, paths: dict, repair: bool = True, quiet: bool = Fa
     fixed: list[str] = []
     missing: list[str] = []
     ledger = Ledger(csgo)
-    steps = (_ensure_gameinfo, _ensure_addons, _ensure_plugins, _ensure_difficulty)
+    steps = (_ensure_gameinfo, _ensure_addons, _ensure_plugins, _ensure_plugins_compat, _ensure_difficulty)
     for step in steps:
         try:
             step(state, paths, ledger, fixed, missing)
@@ -1880,10 +2062,16 @@ def launch(state: dict, paths: dict, use_steam: bool = True) -> dict:
         raise RuntimeError("当前是「在线原版」模式，请先切到「强化人机（免插件）」或「离线全功能」")
     guard = state.setdefault("guard", {})
     auto_boost = False
+    report = compat_report(state, paths)
+    if guard.get("suspended") and report.get("adapted"):
+        # 插件已升级到适配版，之前的隔离状态不再需要
+        guard["suspended"] = False
+        guard["broken"] = False
+        guard["note"] = ""
+        log(state, "检测到 CounterStrikeSharp 已升级到适配版，已自动解除模组隔离")
     if state.get("mode") == "offline":
-        # 真机验证过：完整模组在游戏更新后会在启动 15 秒左右崩在 tier0，
-        # 这时自动退到「免插件强化」——botprofile 覆盖照旧生效，游戏也不会崩。
-        if compat_report(state, paths).get("status") == "broken":
+        # 只有插件版本确实低于适配要求时才降级；适配版（>= 1.0.381）直接跑完整模组
+        if report.get("status") == "broken" and not report.get("adapted"):
             set_mode(state, paths, "boost")
             auto_boost = True
             log(state, "完整模组与当前 CS2 不兼容，已自动切到「强化人机（免插件）」，"
@@ -1931,7 +2119,20 @@ def _spawn_game(paths: dict, args: list[str], use_steam: bool = True) -> dict:
 # 版本兼容性：游戏版本 vs 模组构建时间
 # --------------------------------------------------------------------------
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
+
+# CS2 1.42.0.1（2026-11-23）之后，只有 CSSharp 1.0.381+ 能稳定加载插件；
+# 低版本会在进图后 15-25 秒崩在 tier0.dll+0xbc62c。
+MIN_CSS_VERSION = "1.0.381"
+
+
+def ver_tuple(text: str) -> tuple:
+    """把 1.0.381 这类版本号变成可比较的元组。"""
+    parts = []
+    for chunk in str(text or "").split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts or [0])
 
 _MONTHS = {m: i + 1 for i, m in enumerate(
     ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))}
@@ -2044,24 +2245,41 @@ def mod_build() -> dict:
 
 
 def compat_report(state: dict, paths: dict) -> dict:
-    """游戏版本 / 模组构建时间 / 已知崩溃，三合一的兼容性结论。"""
+    """游戏版本 / 模组构建时间 / 已装插件版本，三合一的兼容性结论。"""
     game = game_build(paths)
     mod = mod_build()
     guard = state.get("guard") or {}
+    csgo = paths.get("csgo")
+    installed = installed_cssharp_version(csgo) if csgo else ""
+    pkg_css = package_cssharp_version()
+    adapted = bool(installed) and ver_tuple(installed) >= ver_tuple(MIN_CSS_VERSION)
     broken = bool(guard.get("broken"))
     stale = bool(game.get("date") and mod.get("date") and game["date"] > mod["date"])
-    if broken:
+    hider = bool(csgo and (csgo / "addons" / "metamod" / "BotHider.vdf").exists())
+
+    if adapted:
+        status = "ok"
+        title = f"已适配 CS2 {game.get('version') or '当前版本'}"
+        detail = (f"CounterStrikeSharp {installed} 已适配新版 CS2，"
+                  "换肤（InventorySimulator）与强化 AI 插件都能正常加载。")
+        if hider:
+            status = "warn"
+            title = "已适配，但残留 BotHider"
+            detail = ("BotHider 原生插件未适配 CS2 1.42，会导致进图后崩溃。"
+                      "点「修复插件兼容」或重新安装模组即可自动禁用。")
+    elif broken:
         status = "broken"
         title = "模组与当前 CS2 版本不兼容"
         detail = (f"上次启动崩溃在 {guard.get('module') or '未知模块'}"
                   f"{(' + ' + str(guard.get('offset'))) if guard.get('offset') else ''}。"
-                  f"游戏已更新到 {game['label']}，而模组最后构建于 {mod.get('date') or '未知'}，"
-                  "插件还没适配这一版。")
+                  f"游戏已更新到 {game['label']}，当前 CounterStrikeSharp "
+                  f"{installed or '未知'} 低于适配所需的 {MIN_CSS_VERSION}，"
+                  "点「更新换肤/插件」安装适配版。")
     elif stale:
         status = "stale"
-        title = "游戏比模组新，可能不兼容"
+        title = "游戏比模组新，插件版本可能偏旧"
         detail = (f"游戏 {game['label']} 晚于模组构建日期 {mod.get('date')}。"
-                  "如果启动后闪退，请点「原版启动」先保住能玩，再等模组更新。")
+                  f"若进图闪退，把 CounterStrikeSharp 更新到 {MIN_CSS_VERSION} 或更高。")
     else:
         status = "ok"
         title = "版本匹配"
@@ -2069,6 +2287,11 @@ def compat_report(state: dict, paths: dict) -> dict:
     return {
         "status": status, "title": title, "detail": detail,
         "game": game, "mod": mod,
+        "installedCss": installed,
+        "pkgCss": pkg_css,
+        "minCss": MIN_CSS_VERSION,
+        "adapted": adapted,
+        "botHider": hider,
         "suspended": bool(guard.get("suspended")),
         "brokenAt": guard.get("at", ""),
         "lastLaunch": guard.get("lastLaunch", ""),
@@ -2619,6 +2842,15 @@ class Handler(BaseHTTPRequestHandler):
             write_cfgs(state, paths)
             return result
 
+        if route == "/api/plugins/repair":
+            guard = state.setdefault("guard", {})
+            result = repair_plugins(state, paths)
+            if result.get("adapted"):
+                guard.update({"broken": False, "suspended": False, "note": ""})
+            result["selfCheck"] = ensure_ready(state, paths, repair=True, quiet=True)
+            write_cfgs(state, paths)
+            return result
+
         if route == "/api/uninstall":
             return uninstall(state, paths)
 
@@ -2659,8 +2891,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/api/mode":
             set_mode(state, paths, payload.get("mode", "offline"))
-            if state["mode"] == "offline":
+            if state["mode"] in ("offline", "boost"):
                 set_difficulty(state, paths, state.get("difficulty", "Medium"))
+                write_cfgs(state, paths)
             return {"mode": state["mode"]}
 
         if route == "/api/difficulty":
