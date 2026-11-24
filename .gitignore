@@ -1,0 +1,21 @@
+# 打包与运行产物
+*.exe
+build/
+dist/
+mods/
+__pycache__/
+*.pyc
+
+# 每台机器不同的运行时数据
+state.json
+ledger.json
+ledger/
+backup/
+botcfg-backup/
+exports/
+inventory.json
+launch.flags
+
+# 临时
+_tmp/
+*.log

@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CS2 WORKBENCH</title>
+<link rel="stylesheet" href="/web/theme.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ 侧栏 ============ -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="brand-mark">CS2</div>
+      <div class="brand-word">WORKBENCH</div>
+      <div class="brand-sub">BOT AI + SKIN CHANGER</div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item is-active" data-view="overview"><span class="nav-no">01</span>概览</button>
+      <button class="nav-item" data-view="match"><span class="nav-no">02</span>对局</button>
+      <button class="nav-item" data-view="skins"><span class="nav-no">03</span>换肤</button>
+      <button class="nav-item" data-view="deploy"><span class="nav-no">04</span>部署</button>
+      <button class="nav-item" data-view="clean"><span class="nav-no">05</span>清理</button>
+      <button class="nav-item" data-view="logs"><span class="nav-no">06</span>日志</button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="rail-ci">
+        <span class="dot" id="rail-dot"></span>
+        <span id="rail-health">正在检测环境…</span>
+      </div>
+      <div class="rail-path mono" id="rail-path">—</div>
+    </div>
+  </aside>
+
+  <!-- ============ 主区 ============ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">
+        <span class="crumb-root">CS2 WORKBENCH</span>
+        <span class="crumb-sep">/</span>
+        <span id="crumb-view">概览</span>
+      </div>
+      <div class="top-right">
+        <span class="tag" id="top-mode">—</span>
+        <span class="tag tag-ghost" id="top-diff">—</span>
+      </div>
+    </header>
+
+    <div class="views">
+
+      <!-- ---------- 概览 ---------- -->
+      <section class="view is-active" id="view-overview">
+        <div class="section-head">
+          <h1>训练环境</h1>
+          <p>本地人机对打 · 服务器端换肤 · 全部在 <code>-insecure</code> 离线环境下运行</p>
+        </div>
+
+        <div class="status-grid" id="status-grid"></div>
+
+        <div class="section-head section-gap">
+          <h2>运行模式</h2>
+          <p>切换模式会改写 <code>game/csgo/gameinfo.gi</code>，并增删插件挂载</p>
+        </div>
+        <div class="mode-grid" id="mode-grid"></div>
+
+        <div class="section-head section-gap">
+          <h2>就绪检查</h2>
+          <p>全部通过后即可直接开打</p>
+        </div>
+        <div class="checklist" id="checklist"></div>
+      </section>
+
+      <!-- ---------- 对局 ---------- -->
+      <section class="view" id="view-match">
+        <div class="section-head head-row">
+          <div>
+            <h1>人机对局</h1>
+            <p>模式、难度、预设、机器人买什么、回合规则，全部直接写进 <code>CS2BotImprover</code> 插件自己的配置</p>
+          </div>
+          <div class="head-side">
+            <button class="btn keep-case" id="open-bot-dir">打开 CS2BotImprover 文件夹</button>
+            <div class="head-path mono" id="bot-dir-path">—</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">A</span>模式与地图</div>
+          <div class="panel-body">
+            <div class="field">
+              <label>游戏模式</label>
+              <div class="chip-row" id="gamemode-row"></div>
+            </div>
+            <div class="field">
+              <label>地图</label>
+              <div class="map-grid" id="map-grid"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">B</span>机器人</div>
+          <div class="panel-body grid-2">
+            <div class="field">
+              <label>难度档位 <span class="hint">决定 botprofile.vpk</span></label>
+              <div class="chip-row" id="diff-row"></div>
+              <p class="field-note" id="diff-note"></p>
+            </div>
+            <div class="field">
+              <label>瞄准习惯</label>
+              <div class="chip-row" id="aim-row">
+                <button class="chip" data-aim="head">锁头</button>
+                <button class="chip" data-aim="mixed">混合</button>
+                <button class="chip" data-aim="body">锁身</button>
+              </div>
+              <p class="field-note">对应 <code>bot_aim</code>，进入地图后可用 <code>exec wb_inmatch</code> 重新应用</p>
+            </div>
+            <div class="field">
+              <label>投掷物</label>
+              <div class="chip-row" id="nades-row">
+                <button class="chip" data-nades="off">禁用</button>
+                <button class="chip" data-nades="less">少量</button>
+                <button class="chip" data-nades="normal">正常</button>
+                <button class="chip" data-nades="more">更多</button>
+                <button class="chip" data-nades="max">狂丢</button>
+              </div>
+              <p class="field-note">对应 <code>bot_nades</code></p>
+            </div>
+            <div class="field">
+              <label>机器人数量 <span class="hint mono" id="quota-val">10</span></label>
+              <input type="range" id="quota" min="0" max="10" step="1" value="10">
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">C</span>回合规则</div>
+          <div class="panel-body grid-3">
+            <div class="field">
+              <label>回合时长 <span class="hint mono" id="roundtime-val">1.92</span></label>
+              <input type="range" id="roundtime" min="0.5" max="3" step="0.01" value="1.92">
+            </div>
+            <div class="field">
+              <label>冻结时间 <span class="hint mono" id="freezetime-val">3</span></label>
+              <input type="range" id="freezetime" min="0" max="15" step="1" value="3">
+            </div>
+            <div class="field">
+              <label>起始金钱 <span class="hint mono" id="startmoney-val">800</span></label>
+              <input type="range" id="startmoney" min="0" max="16000" step="50" value="800">
+            </div>
+            <div class="field">
+              <label>C4 计时 <span class="hint mono" id="c4timer-val">40</span></label>
+              <input type="range" id="c4timer" min="30" max="60" step="5" value="40">
+            </div>
+            <div class="switch-line">
+              <span>友军伤害</span>
+              <button class="switch" id="ff" role="switch"></button>
+            </div>
+            <div class="switch-line">
+              <span>启动时直接进图</span>
+              <button class="switch is-on" id="automap" role="switch"></button>
+            </div>
+            <div class="switch-line">
+              <span>启动时应用 AI 设置</span>
+              <button class="switch" id="applycmds" role="switch"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">D</span>强化人机插件同步</div>
+          <div class="panel-body">
+            <div class="field">
+              <label>机器人预设 <span class="hint">对应插件里的 <code>cfg/my_bot_*_config.cfg</code></span></label>
+              <div class="chip-row" id="preset-row"></div>
+              <p class="field-note" id="preset-note"></p>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>机器人物品</label>
+                <div class="field-stack">
+                  <div class="chip-row" id="loadout-row"></div>
+                  <p class="field-note">写 <code>bot_loadout</code>，机器人按这套装备买枪</p>
+                </div>
+              </div>
+              <div class="field">
+                <label>经济与投掷物</label>
+                <div class="field-stack">
+                  <label class="mini-label">ECO 上限 <span class="hint mono" id="ecolimit-val">2800</span></label>
+                  <input type="range" id="ecolimit" min="0" max="8000" step="100" value="2800">
+                  <div class="switch-line">
+                    <span>允许机器人买雷</span>
+                    <button class="switch" id="botnades" role="switch"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="sync-line">
+              <span class="sync-dot" id="sync-dot"></span>
+              <span id="sync-text">—</span>
+            </div>
+            <p class="field-note mono sync-path" id="sync-path">—</p>
+            <div class="row-actions">
+              <button class="btn" id="botcfg-save">写入插件配置</button>
+              <button class="btn btn-ghost" id="botcfg-read">从插件读取</button>
+              <button class="btn btn-ghost" id="open-bot-cfg">打开 cfg 目录</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">E</span>附加启动参数</div>
+          <div class="panel-body">
+            <div class="field">
+              <input class="input mono" id="extraargs" placeholder="-disable_workshop_command_filtering  …">
+              <p class="field-note">会追加到启动命令末尾，留空即可</p>
+            </div>
+            <div class="row-actions">
+              <button class="btn" id="match-save">写入配置</button>
+              <button class="btn btn-ghost" id="match-preview">查看生成的 cfg</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 换肤 ---------- -->
+      <section class="view" id="view-skins">
+        <div class="section-head">
+          <h1>换肤</h1>
+          <p id="skin-lead">皮肤直接取自 inventory.cstrike.app 上你账号已保存的库存，进游戏自动加载</p>
+        </div>
+
+        <div class="source-bar">
+          <div class="src-left">
+            <span class="mini-label">皮肤来源</span>
+            <div class="seg" id="source-seg">
+              <button class="seg-item" data-source="site">inventory.cstrike.app</button>
+              <button class="seg-item" data-source="local">本地工作台</button>
+            </div>
+          </div>
+          <div class="src-right">
+            <span class="src-state mono" id="site-state">—</span>
+            <button class="btn btn-ghost btn-sm" id="site-pull">从官网拉取</button>
+            <button class="btn btn-ghost btn-sm" id="site-open">打开官网</button>
+          </div>
+        </div>
+
+        <div class="skin-bar">
+          <div class="seg" id="team-seg">
+            <button class="seg-item is-active" data-team="2">T 匪徒</button>
+            <button class="seg-item" data-team="3">CT 警察</button>
+          </div>
+          <div class="seg" id="cat-seg">
+            <button class="seg-item is-active" data-cat="weapons">武器</button>
+            <button class="seg-item" data-cat="knife">刀</button>
+            <button class="seg-item" data-cat="gloves">手套</button>
+          </div>
+          <input class="input mono search" id="skin-search" placeholder="搜索武器 / 编号">
+          <div class="spacer"></div>
+          <button class="btn btn-ghost" id="skin-random">随机一套</button>
+          <button class="btn btn-ghost" id="skin-clear">清空</button>
+        </div>
+
+        <div class="skin-layout">
+          <div class="skin-list" id="skin-list"></div>
+          <aside class="skin-inspector" id="inspector">
+            <div class="empty">从左侧选择一个物品</div>
+          </aside>
+        </div>
+
+        <div class="save-bar">
+          <div class="save-meta">
+            <label class="mini-label">STEAMID64</label>
+            <input class="input mono" id="steamid" placeholder="7656119xxxxxxxxxx" maxlength="17">
+            <span class="save-count mono" id="skin-count">0 件</span>
+            <span class="save-hint" id="save-hint">保存后游戏内 <code>!ws</code> 立即生效 · 期间保持工作台运行</span>
+          </div>
+          <button class="btn btn-primary" id="skin-save">保存到下局库存</button>
+        </div>
+      </section>
+
+      <!-- ---------- 部署 ---------- -->
+      <section class="view" id="view-deploy">
+        <div class="section-head">
+          <h1>部署</h1>
+          <p>把两套模组合并进 <code>game/csgo</code>；要彻底移除请到「清理」页</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">01</span>CS2 安装位置</div>
+          <div class="panel-body">
+            <div class="field">
+              <label>安装目录</label>
+              <div class="input-row">
+                <input class="input mono" id="cs2root" placeholder="D:\SteamLibrary\steamapps\common\Counter-Strike Global Offensive">
+                <button class="btn" id="path-save">应用</button>
+                <button class="btn btn-ghost" id="path-detect">自动探测</button>
+              </div>
+              <p class="field-note" id="path-note">—</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">02</span>文件状态</div>
+          <div class="panel-body">
+            <div class="file-list" id="file-list"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">03</span>操作</div>
+          <div class="panel-body">
+            <div class="row-actions">
+              <button class="btn btn-primary" id="deploy-install">安装 / 更新模组</button>
+              <button class="btn" id="deploy-repair">一键自检并修复</button>
+              <button class="btn" id="deploy-online">恢复正常在线模式</button>
+              <button class="btn btn-ghost" id="deploy-clean">去清理页（彻底移除）</button>
+              <button class="btn btn-ghost" id="open-csgo">打开 game/csgo</button>
+              <button class="btn btn-ghost" id="open-inv">打开库存目录</button>
+              <button class="btn btn-ghost" id="make-shortcut">创建桌面快捷方式</button>
+            </div>
+            <p class="field-note">「安装 / 更新」只覆盖模组文件，不会动 <code>gameinfo.gi</code> 之外的游戏本体；已经改过的 <code>cfg</code> 一律保留。<b>每次打开工作台、每次启动游戏前都会自动自检一次</b>，发现 gameinfo 挂载、插件目录或难度 vpk 缺失会自己补回去。</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">04</span>常驻运行</div>
+          <div class="panel-body">
+            <div class="persist-row">
+              <div class="persist-info">
+                <div class="persist-state" id="persist-state">检查中…</div>
+                <p class="field-note" id="persist-note">—</p>
+              </div>
+              <div class="row-actions persist-actions" id="persist-actions"></div>
+            </div>
+            <p class="field-note">把工作台放进「启动」文件夹：登录 Windows 后由资源管理器自动拉起，父进程是 explorer，关掉终端、关掉任何宿主程序都不影响服务。用「本地工作台」作皮肤来源时需要它常驻，否则进游戏后没人下发库存；用 <code>inventory.cstrike.app</code> 来源则完全不依赖本地服务。</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">05</span>原始文件备份</div>
+          <div class="panel-body">
+            <p class="field-note" id="backup-note">—</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 清理 ---------- -->
+      <section class="view" id="view-clean">
+        <div class="section-head">
+          <h1>还原与清理</h1>
+          <p>打官方匹配前先清一遍：只删模组新增的东西，游戏本体文件一个不动</p>
+        </div>
+
+        <div class="panel" id="clean-alert">
+          <div class="panel-head"><span class="panel-no">!</span>当前环境</div>
+          <div class="panel-body">
+            <div class="clean-state">
+              <div class="cs-main" id="clean-title">—</div>
+              <div class="cs-sub" id="clean-sub">—</div>
+            </div>
+            <div class="clean-stats" id="clean-stats"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">01</span>一键清除</div>
+          <div class="panel-body">
+            <p class="field-note">
+              移除 <code>addons/metamod</code>、<code>addons/counterstrikesharp</code>、<code>overrides</code>、
+              <code>backup</code> 和工作台写入的 cfg，并把 <code>gameinfo.gi</code> 还原成官方版本。
+              建议先退出 CS2 再执行。
+            </p>
+            <div class="row-actions">
+              <button class="btn btn-danger" id="clean-run">一键删除全部模组文件</button>
+              <button class="btn btn-ghost" id="clean-verify">校验是否干净</button>
+            </div>
+            <div class="clean-result" id="clean-result"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">02</span>重新导入</div>
+          <div class="panel-body">
+            <p class="field-note">想再练人机时点这里，按台账重新写入全部模组文件并切回「离线人机」。</p>
+            <div class="row-actions">
+              <button class="btn" id="clean-reinstall">重新导入模组</button>
+              <button class="btn btn-ghost" id="clean-open-csgo">打开 game/csgo</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">03</span>台账清单<span class="ph-note mono" id="clean-count">—</span></div>
+          <div class="panel-body">
+            <div class="file-list" id="clean-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 日志 ---------- -->
+      <section class="view" id="view-logs">
+        <div class="section-head">
+          <h1>操作日志</h1>
+          <p>本次及历史操作记录，便于排查问题</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span class="panel-no">LOG</span>最近 200 条
+            <button class="btn btn-ghost btn-sm" id="log-clear">清空</button>
+          </div>
+          <div class="panel-body">
+            <div class="log-list" id="log-list"></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ============ 底部操作条 ============ -->
+    <footer class="actionbar">
+      <div class="ab-left">
+        <div class="ab-mode" id="ab-mode">离线人机</div>
+        <div class="ab-meta mono" id="ab-meta">—</div>
+      </div>
+      <div class="ab-right">
+        <button class="btn btn-ghost btn-sm" id="ab-quit">退出</button>
+        <button class="btn btn-ghost" id="ab-cfg">写入配置</button>
+        <button class="btn btn-primary btn-launch" id="ab-launch">启动 CS2</button>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="conn-bar" id="conn-bar">
+  <span class="cb-dot"></span>
+  <span class="cb-text" id="conn-text">工作台服务已断开</span>
+  <span class="cb-sub">页面已暂停，服务恢复后自动接上；也可重新双击 CS2Workbench.exe</span>
+  <button class="cb-retry" id="conn-retry">立即重试</button>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<!-- cfg 预览弹层 -->
+<div class="overlay" id="overlay">
+  <div class="dialog">
+    <div class="dialog-head">
+      <span id="dialog-title">生成的配置文件</span>
+      <button class="icon-btn" id="dialog-close">✕</button>
+    </div>
+    <pre class="dialog-body mono" id="dialog-body"></pre>
+  </div>
+</div>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
