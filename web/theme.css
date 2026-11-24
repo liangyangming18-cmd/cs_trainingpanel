@@ -1,5 +1,5 @@
 /* ============================================================
-   CS2 Workbench v1.0.3 — Windows 11 (Fluent) 界面
+   CS2 Workbench v1.0.4 — Windows 11 (Fluent) 界面
    Mica 分层底、8px 圆角卡片、Segoe UI Variable、系统强调色
    ============================================================ */
 
@@ -1030,4 +1030,236 @@ body.is-offline .app {
   .skin-layout { grid-template-columns: 1fr; }
   .skin-inspector { position: static; }
   .skin-list { max-height: 340px; }
+}
+
+/* ============================================================
+   v1.0.4 新增：概览页「启动游戏」+ 设置页
+   ============================================================ */
+
+/* ---------------- 概览：启动游戏（Steam 式主按钮） ---------------- */
+
+.play-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-card);
+  background:
+    linear-gradient(115deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 60%),
+    var(--card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.play-hero::after {
+  content: "";
+  position: absolute;
+  right: -70px;
+  top: -90px;
+  width: 340px;
+  height: 340px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+.ph-info { position: relative; z-index: 1; min-width: 0; }
+
+.ph-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--text-3);
+}
+
+.ph-title {
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+.ph-meta {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.ph-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.ph-btn {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  min-width: 190px;
+  height: 52px;
+  padding: 0 26px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 32%, transparent);
+  transition: transform 0.12s var(--ease), background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ph-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.ph-btn:active:not(:disabled) { transform: translateY(0) scale(0.992); }
+
+.ph-btn:disabled {
+  background: var(--ctl);
+  color: var(--text-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.ph-tri {
+  width: 0;
+  height: 0;
+  border-left: 13px solid currentColor;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+/* ---------------- 设置：版本 ---------------- */
+
+.ver-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-card);
+  background: var(--card-flat);
+}
+
+.ver-hero .row-actions { margin-top: 0; }
+
+.vh-kicker { font-size: 12px; color: var(--text-3); }
+.vh-ver { margin-top: 2px; font-size: 26px; font-weight: 600; letter-spacing: 0.01em; }
+.vh-rel { margin-top: 4px; font-size: 13px; color: var(--text-3); }
+.vh-rel.is-ok { color: var(--ok); }
+.vh-rel.is-new { color: var(--accent); }
+.vh-rel.is-warn { color: var(--warn); }
+
+.ver-notes {
+  margin-top: 14px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+
+.vn-head {
+  padding: 10px 14px;
+  background: var(--card-flat);
+  border-bottom: 1px solid var(--stroke);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.vn-body {
+  padding: 12px 14px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
+.ver-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+
+.ver-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-card);
+  background: var(--card-flat);
+}
+
+.ver-row .row-actions { margin-top: 0; }
+
+.vr-main { min-width: 0; }
+.vr-tag { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+.vr-sub { margin-top: 3px; font-size: 12px; color: var(--text-3); }
+
+.vr-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.vr-badge.is-cur { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.vr-badge.is-new { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* ---------------- 设置：关于 ---------------- */
+
+.about-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-card);
+  background: var(--stroke);
+  overflow: hidden;
+}
+
+.about-row {
+  display: flex;
+  gap: 16px;
+  padding: 11px 14px;
+  background: var(--card-flat);
+}
+
+.ar-k { flex: none; width: 110px; font-size: 12.5px; color: var(--text-3); }
+.ar-v { font-size: 12px; color: var(--text-2); word-break: break-all; }
+
+@media (max-width: 860px) {
+  .play-hero { flex-direction: column; align-items: stretch; gap: 16px; }
+  .ph-btn { width: 100%; }
+  .ver-hero { flex-direction: column; align-items: stretch; gap: 12px; }
+  .ver-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .about-row { flex-direction: column; gap: 3px; }
+  .ar-k { width: auto; }
+}
+
+/* 通用隐藏（v1.0.4：提示块 / 版本更新日志共用） */
+.is-hidden { display: none !important; }
+
+.ver-list .empty {
+  padding: 10px 2px;
+  font-size: 12.5px;
+  color: var(--text-3);
 }

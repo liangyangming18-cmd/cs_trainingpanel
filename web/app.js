@@ -45,6 +45,12 @@ function applyTheme() {
   const eff = THEME.mode === "auto" ? systemTheme() : THEME.mode;
   document.documentElement.dataset.theme = eff;
   $$("#theme-seg .seg-item").forEach((b) => b.classList.toggle("is-active", b.dataset.themeSet === THEME.mode));
+  const note = $("#theme-note");
+  if (note) {
+    note.textContent = THEME.mode === "auto"
+      ? `当前：跟随系统（现在是${eff === "light" ? "浅色" : "深色"}）`
+      : `当前：固定${eff === "light" ? "浅色" : "深色"}`;
+  }
 }
 
 function setTheme(mode) {
@@ -209,6 +215,7 @@ function renderAll() {
   renderClean();
   renderLogs();
   renderActionbar();
+  renderSettings();
   renderSkinsHeader();
   if (CATALOG) renderSkinList();
 }
@@ -223,10 +230,12 @@ function renderRail() {
   $("#rail-path").textContent = PATHS.csgo || "未定位安装目录";
   $("#top-mode").textContent = (META.modes[S.mode] || {}).label || S.mode;
   $("#top-diff").textContent = (META.difficulty[S.difficulty] || S.difficulty) + " 难度";
-  const ver = META.app ? "v" + META.app : "v1.0.3";
+  const ver = META.app ? "v" + META.app : "v1.0.4";
   const bv = $("#brand-ver");
   if (bv) bv.textContent = ver;
   document.title = `CS2 Workbench ${ver}`;
+  const sv = $("#ver-current");
+  if (sv) sv.textContent = ver;
 }
 
 /* ---------------- 概览 ---------------- */
@@ -459,7 +468,7 @@ function renderCompat() {
     `CSSharp 已装 ${cssVer || "未知"}${adapted ? "（适配）" : `（需 ${c.minCss || "1.0.381"}+）`}`,
     `Metamod ${m.metamod || "?"}`,
     boostOn ? "运行时：免插件强化" : c.suspended ? "模组已挂起" : "模组已挂载",
-    `工作台 v${c.app || META.app || "1.0.3"}`,
+    `工作台 v${c.app || META.app || "1.0.4"}`,
   ].filter(Boolean);
   $("#compat-ver").textContent = bits.join(" · ");
 }
@@ -891,20 +900,171 @@ function renderLogs() {
     : `<div style="color:var(--mute);padding:10px 0">暂无记录</div>`;
 }
 
+/* ---------------- 设置 ---------------- */
+
+const UPDATE = { data: null, loading: false };
+
+function fmtSize(bytes) {
+  const n = Number(bytes || 0);
+  if (!n) return "";
+  return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
+}
+
+function renderSettings() {
+  const cur = (META && META.app) || "1.0.4";
+  const curEl = $("#ver-current");
+  if (curEl) curEl.textContent = "v" + cur;
+
+  const relEl = $("#ver-relation");
+  const notesBox = $("#ver-notes");
+  const listEl = $("#ver-list");
+  const countEl = $("#ver-count");
+  const d = UPDATE.data;
+
+  if (relEl) {
+    if (UPDATE.loading) {
+      relEl.textContent = "正在查询仓库…";
+      relEl.className = "vh-rel";
+    } else if (!d) {
+      relEl.textContent = "尚未检查更新";
+      relEl.className = "vh-rel";
+    } else if (!d.ok) {
+      relEl.textContent = `检查失败：${d.error || "网络不可用"}`;
+      relEl.className = "vh-rel is-warn";
+    } else if (!d.latest) {
+      relEl.textContent = "仓库里还没有发布版本";
+      relEl.className = "vh-rel is-warn";
+    } else if (d.newer) {
+      relEl.textContent = `有新版本 ${d.latest.tag}（${d.latest.published}）可下载`;
+      relEl.className = "vh-rel is-new";
+    } else {
+      relEl.textContent = `已是最新（仓库最新 ${d.latest.tag}）`;
+      relEl.className = "vh-rel is-ok";
+    }
+  }
+
+  if (notesBox) {
+    const latest = d && d.latest;
+    if (latest && latest.notes) {
+      notesBox.classList.remove("is-hidden");
+      $("#ver-notes-head").textContent = `${latest.tag} · ${latest.name} · ${latest.published}`;
+      $("#ver-notes-body").textContent = latest.notes;
+    } else {
+      notesBox.classList.add("is-hidden");
+    }
+  }
+
+  if (listEl) {
+    const versions = (d && d.versions) || [];
+    if (countEl) countEl.textContent = versions.length ? `${versions.length} 个版本` : "—";
+    listEl.innerHTML = versions.length
+      ? versions.map((v) => {
+        const exe = (v.assets || []).find((a) => /\.exe$/i.test(a.name)) || (v.assets || [])[0];
+        const badge = v.relation === "current" ? `<span class="vr-badge is-cur">CURRENT</span>`
+          : v.relation === "newer" ? `<span class="vr-badge is-new">新版</span>`
+            : `<span class="vr-badge">可回退</span>`;
+        return `
+        <div class="ver-row">
+          <div class="vr-main">
+            <div class="vr-tag mono">${esc(v.tag)} ${badge}</div>
+            <div class="vr-sub">${esc(v.published || "—")}${exe ? " · " + esc(exe.name) + " " + esc(fmtSize(exe.size)) : " · 该版本没上传 exe"}</div>
+          </div>
+          <div class="row-actions">
+            ${exe ? `<button class="btn keep-case btn-sm" data-dl="${esc(exe.url)}">下载</button>` : ""}
+            <button class="btn btn-subtle keep-case btn-sm" data-page="${esc(v.page || "")}">发布页</button>
+          </div>
+        </div>`;
+      }).join("")
+      : `<div class="empty">还没读到版本列表。仓库第一次发布后，这里会列出可回退的版本。</div>`;
+  }
+
+  const about = $("#about-grid");
+  if (about) {
+    const rows = [
+      ["工作台版本", "v" + cur + (META.frozen ? "（单文件 exe）" : "（源码运行）")],
+      ["代码仓库", (META && META.repo) || "—"],
+      ["发布页面", (META && META.releases) || "—"],
+      ["工作台目录", (META && META.home) || "—"],
+      ["模组包", (META && META.pkgBot) || "—"],
+      ["游戏目录", (PATHS && PATHS.csgo) || "未定位"],
+    ];
+    about.innerHTML = rows.map(([k, v]) => `
+      <div class="about-row">
+        <span class="ar-k">${esc(k)}</span>
+        <span class="ar-v mono">${esc(v)}</span>
+      </div>`).join("");
+  }
+}
+
+async function checkUpdate() {
+  UPDATE.loading = true;
+  renderSettings();
+  const data = await api("/api/update/check", {});
+  UPDATE.loading = false;
+  if (!data) {
+    UPDATE.data = { ok: false, error: "无法连接工作台服务" };
+    renderSettings();
+    return null;
+  }
+  UPDATE.data = data.result || { ok: false, error: "返回数据异常" };
+  renderSettings();
+  const d = UPDATE.data;
+  if (d.ok && d.newer) toast(`有新版 ${d.latest.tag}，可在「设置 → 历史版本」下载`);
+  else if (d.ok && d.latest) toast("已是最新版本");
+  else if (d.ok) toast("仓库里还没有发布版本", true);
+  else toast(d.error || "检查失败", true);
+  return d;
+}
+
 /* ---------------- 底部条 ---------------- */
 
 function renderActionbar() {
   const modeLabel = (META.modes[S.mode] || {}).label || S.mode;
   $("#ab-mode").textContent = modeLabel;
   const m = S.match;
-  const ver = META.app ? "v" + META.app : "v1.0.3";
+  const ver = META.app ? "v" + META.app : "v1.0.4";
   $("#ab-meta").textContent =
     `${m.map} · ${(META.gamemodes[m.gamemode] || {}).label || m.gamemode} · ${META.difficulty[S.difficulty] || S.difficulty} · -insecure · ${ver}`;
-  const btn = $("#ab-launch");
+  renderHero();
+}
+
+/* ---------------- 概览页的「启动游戏」（Steam 那种主按钮） ---------------- */
+
+function renderHero() {
+  const btn = $("#ov-launch");
+  if (!btn) return;
+  const m = S.match;
+  const modeLabel = (META.modes[S.mode] || {}).label || S.mode;
   const online = S.mode === "online";
-  btn.disabled = online;
-  btn.textContent = online ? "先切到离线模式" : "启动 CS2";
-  btn.title = online ? "在线原版模式不加载模组，请先在概览页切换模式" : "";
+  const mounted = ["offline", "skin", "boost"].includes(HEALTH.gameinfo);
+  const ready = HEALTH.found && (online || (HEALTH.metamod && HEALTH.cssharp));
+
+  $("#ph-title").textContent = online ? "在线原版（不加载模组）" : modeLabel;
+  $("#ph-meta").textContent =
+    `${m.map} · ${(META.gamemodes[m.gamemode] || {}).label || m.gamemode} · ${META.difficulty[S.difficulty] || S.difficulty} 难度 · ${m.botQuota} 个机器人`;
+
+  const dot = $("#ph-dot");
+  let state = "";
+  if (online) {
+    state = "在线原版模式不加载模组，想练人机先在下面切模式";
+    dot.className = "dot warn";
+  } else if (!HEALTH.found) {
+    state = "没找到 CS2 目录，先去「部署」页指定";
+    dot.className = "dot bad";
+  } else if (!mounted) {
+    state = "模组没挂载，点「部署」页一键自检并修复";
+    dot.className = "dot bad";
+  } else if (ready) {
+    state = S.mode === "boost" ? "环境就绪 · 免插件强化，-insecure 开打" : "环境就绪 · 强化 AI + 换肤，-insecure 开打";
+    dot.className = "dot ok";
+  } else {
+    state = "插件未就绪，建议先到「部署」页修复，或切到免插件强化";
+    dot.className = "dot warn";
+  }
+  $("#ph-state-text").textContent = state;
+
+  btn.disabled = online || !HEALTH.found;
+  btn.title = online ? "在线原版模式不加载模组，请先切换模式" : "";
 }
 
 /* ---------------- 保存 ---------------- */
@@ -932,6 +1092,7 @@ function switchView(name) {
   const active = $(".nav-item.is-active");
   if (active) $("#crumb-view").textContent = active.textContent.replace(/^\d+/, "").trim();
   if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  if (name === "settings" && !UPDATE.data && !UPDATE.loading) checkUpdate();
 }
 
 function bind() {
@@ -945,7 +1106,7 @@ function bind() {
 
   $$(".nav-item").forEach((btn) => btn.addEventListener("click", () => switchView(btn.dataset.view)));
   const initial = (location.hash || "").replace("#", "");
-  if (["overview", "match", "skins", "deploy", "clean", "logs"].includes(initial)) switchView(initial);
+  if (["overview", "match", "skins", "deploy", "clean", "logs", "settings"].includes(initial)) switchView(initial);
   const item = new URLSearchParams(location.search).get("item");
   if (item) ui.id = item;
 
@@ -1092,7 +1253,7 @@ function bind() {
 
   // 启动
   async function launch() {
-    const btn = $("#ab-launch");
+    const btn = $("#ov-launch");
     btn.disabled = true;
     const data = await api("/api/launch", { match: collectMatch(), useSteam: true });
     btn.disabled = false;
@@ -1105,7 +1266,27 @@ function bind() {
       toast("已发送启动命令，正在看护启动过程…");
     }
   }
-  $("#ab-launch").addEventListener("click", launch);
+  $("#ov-launch").addEventListener("click", launch);
+
+  // 设置：版本更新 / 回退
+  const verCheck = $("#ver-check");
+  if (verCheck) verCheck.addEventListener("click", () => checkUpdate());
+  const verRepo = $("#ver-open-repo");
+  if (verRepo) verRepo.addEventListener("click", async () => {
+    const url = (META && META.repo) || "https://github.com/liangyangming18-cmd/cs_trainingpanel";
+    await api("/api/open-url", { url });
+  });
+  const verList = $("#ver-list");
+  if (verList) verList.addEventListener("click", async (ev) => {
+    const dl = ev.target.closest("[data-dl]");
+    if (dl && dl.dataset.dl) {
+      await api("/api/open-url", { url: dl.dataset.dl });
+      toast("已用浏览器打开下载链接，下载后替换同名 exe 即可");
+      return;
+    }
+    const page = ev.target.closest("[data-page]");
+    if (page && page.dataset.page) await api("/api/open-url", { url: page.dataset.page });
+  });
 
   // 外观
   $("#theme-seg").addEventListener("click", (ev) => {

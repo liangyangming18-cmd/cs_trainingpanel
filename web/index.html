@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CS2 Workbench v1.0.3</title>
+<title>CS2 Workbench v1.0.4</title>
 <link rel="stylesheet" href="/web/theme.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
       <div class="brand-mark">CS2</div>
       <div class="brand-txt">
         <div class="brand-name">Workbench</div>
-        <div class="brand-ver" id="brand-ver">v1.0.3</div>
+        <div class="brand-ver" id="brand-ver">v1.0.4</div>
       </div>
     </div>
 
@@ -26,6 +26,7 @@
       <button class="nav-item" data-view="deploy"><span class="nav-no">04</span><span class="nav-label">部署</span></button>
       <button class="nav-item" data-view="clean"><span class="nav-no">05</span><span class="nav-label">清理</span></button>
       <button class="nav-item" data-view="logs"><span class="nav-no">06</span><span class="nav-label">日志</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-no">07</span><span class="nav-label">设置</span></button>
     </nav>
 
     <div class="rail-foot">
@@ -48,11 +49,6 @@
       <div class="top-right">
         <span class="tag" id="top-mode">—</span>
         <span class="tag tag-ghost" id="top-diff">—</span>
-        <div class="seg seg-sm" id="theme-seg" title="界面外观">
-          <button class="seg-item" data-theme-set="auto">自动</button>
-          <button class="seg-item" data-theme-set="light">浅色</button>
-          <button class="seg-item" data-theme-set="dark">深色</button>
-        </div>
       </div>
     </header>
 
@@ -60,6 +56,19 @@
 
       <!-- ---------- 概览 ---------- -->
       <section class="view is-active" id="view-overview">
+        <div class="play-hero" id="play-hero">
+          <div class="ph-info">
+            <div class="ph-kicker">COUNTER-STRIKE 2</div>
+            <div class="ph-title" id="ph-title">离线人机对局</div>
+            <div class="ph-meta mono" id="ph-meta">—</div>
+            <div class="ph-state" id="ph-state"><span class="dot" id="ph-dot"></span><span id="ph-state-text">检查环境…</span></div>
+          </div>
+          <button class="ph-btn" id="ov-launch">
+            <span class="ph-tri" aria-hidden="true"></span>
+            <span class="ph-btn-text">启动游戏</span>
+          </button>
+        </div>
+
         <div class="page-head">
           <h1>训练环境</h1>
           <p>本地人机对打 · 服务器端换肤 · 全部在 <code>-insecure</code> 离线环境下运行</p>
@@ -87,7 +96,7 @@
         <div class="page-head head-row">
           <div>
             <h1>人机对局</h1>
-            <p>模式、难度、预设、机器人买什么、回合规则，改完自动保存，点「启动」即生效</p>
+            <p>模式、难度、预设、机器人买什么、回合规则，改完自动保存；回「概览」点「启动游戏」即生效</p>
           </div>
           <div class="head-side">
             <button class="btn keep-case" id="open-bot-dir">打开 CS2BotImprover</button>
@@ -478,6 +487,66 @@
         </div>
       </section>
 
+      <!-- ---------- 设置 ---------- -->
+      <section class="view" id="view-settings">
+        <div class="page-head">
+          <h1>设置</h1>
+          <p>界面外观、版本更新与回退，都放在这一页</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>外观</h3><span class="card-no">01</span></div>
+          <div class="card-body">
+            <div class="field">
+              <label>界面主题 <span class="hint">自动 = 跟随 Windows 明暗</span></label>
+              <div class="seg" id="theme-seg" title="界面外观">
+                <button class="seg-item" data-theme-set="auto">自动</button>
+                <button class="seg-item" data-theme-set="light">浅色</button>
+                <button class="seg-item" data-theme-set="dark">深色</button>
+              </div>
+              <p class="field-note" id="theme-note">当前：跟随系统</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>版本</h3><span class="card-no">02</span></div>
+          <div class="card-body">
+            <div class="ver-hero">
+              <div class="vh-left">
+                <div class="vh-kicker">当前版本</div>
+                <div class="vh-ver mono" id="ver-current">v1.0.4</div>
+                <div class="vh-rel" id="ver-relation">尚未检查更新</div>
+              </div>
+              <div class="row-actions">
+                <button class="btn btn-accent keep-case" id="ver-check">检查更新</button>
+                <button class="btn btn-subtle keep-case" id="ver-open-repo">打开仓库</button>
+              </div>
+            </div>
+            <div class="ver-notes is-hidden" id="ver-notes">
+              <div class="vn-head" id="ver-notes-head">—</div>
+              <pre class="vn-body mono" id="ver-notes-body"></pre>
+            </div>
+            <p class="field-note" id="ver-note">更新与回退都从 GitHub Release 下载，下载后替换同名 exe 即可，运行数据（state.json / ledger.json）不用动。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>历史版本 / 回退</h3><span class="ph-note mono" id="ver-count">—</span></div>
+          <div class="card-body">
+            <p class="field-note">列表来自仓库 Release，点「下载」拿对应版本的 exe；标 CURRENT 的就是你现在这版。</p>
+            <div class="ver-list" id="ver-list"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>关于</h3><span class="card-no">03</span></div>
+          <div class="card-body">
+            <div class="about-grid" id="about-grid"></div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
     <!-- ============ 命令栏 ============ -->
@@ -490,7 +559,6 @@
         <span class="save-state" id="save-state">已保存</span>
         <button class="btn btn-subtle btn-sm keep-case" id="ab-quit">退出</button>
         <button class="btn keep-case" id="ab-cfg">写入 cfg</button>
-        <button class="btn btn-accent btn-launch" id="ab-launch">启动 CS2</button>
       </div>
     </footer>
   </main>

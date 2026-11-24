@@ -2119,7 +2119,7 @@ def _spawn_game(paths: dict, args: list[str], use_steam: bool = True) -> dict:
 # 版本兼容性：游戏版本 vs 模组构建时间
 # --------------------------------------------------------------------------
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 
 # CS2 1.42.0.1（2026-11-23）之后，只有 CSSharp 1.0.381+ 能稳定加载插件；
 # 低版本会在进图后 15-25 秒崩在 tier0.dll+0xbc62c。
@@ -2489,6 +2489,84 @@ def check_mod_update() -> dict:
     }
 
 
+# --------------------------------------------------------------------------
+# 工作台自身的版本更新 / 回退（读自己的 GitHub 仓库 Release）
+# --------------------------------------------------------------------------
+
+APP_REPO = "liangyangming18-cmd/cs_trainingpanel"
+APP_REPO_URL = f"https://github.com/{APP_REPO}"
+APP_RELEASES_URL = f"{APP_REPO_URL}/releases"
+ALLOWED_OPEN_HOSTS = ("github.com", "inventory.cstrike.app")
+
+
+def _releases() -> list[dict]:
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{APP_REPO}/releases?per_page=30",
+        headers={"User-Agent": f"CS2Workbench/{APP_VERSION}", "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8", "ignore"))
+    return data if isinstance(data, list) else []
+
+
+def app_update_check() -> dict:
+    """读仓库 Release 列表：判断有没有新版、以及可以回退到哪些旧版。"""
+    base = {"current": APP_VERSION, "repo": APP_REPO_URL, "page": APP_RELEASES_URL}
+    try:
+        raw = _releases()
+    except Exception as exc:  # noqa: BLE001
+        return {**base, "ok": False, "error": f"查询失败：{exc}", "versions": []}
+
+    items: list[dict] = []
+    for rel in raw:
+        tag = str(rel.get("tag_name") or "").strip()
+        if not tag or rel.get("draft"):
+            continue
+        assets = [{
+            "name": a.get("name") or "",
+            "size": int(a.get("size") or 0),
+            "url": a.get("browser_download_url") or "",
+        } for a in rel.get("assets") or []]
+        items.append({
+            "tag": tag,
+            "version": tag.lstrip("vV"),
+            "name": rel.get("name") or tag,
+            "published": (rel.get("published_at") or "")[:10],
+            "page": rel.get("html_url") or APP_RELEASES_URL,
+            "prerelease": bool(rel.get("prerelease")),
+            "notes": (rel.get("body") or "").strip()[:1500],
+            "assets": assets,
+        })
+    if not items:
+        return {**base, "ok": True, "latest": None, "newer": False, "versions": []}
+
+    items.sort(key=lambda x: ver_tuple(x["version"]), reverse=True)
+    latest = items[0]
+    cur = ver_tuple(APP_VERSION)
+    for item in items:
+        vt = ver_tuple(item["version"])
+        item["relation"] = "newer" if vt > cur else ("current" if vt == cur else "older")
+    return {
+        **base,
+        "ok": True,
+        "latest": latest,
+        "newer": ver_tuple(latest["version"]) > cur,
+        "versions": items,
+        "page": latest["page"],
+    }
+
+
+def open_external(url: str) -> str:
+    """只允许打开白名单里的站点，避免被页面上随便一段字符串拿去做系统调用。"""
+    parts = urllib.parse.urlparse(str(url or ""))
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise RuntimeError("只支持 http/https 链接")
+    host = parts.netloc.split(":")[0].lower()
+    if not any(host == h or host.endswith("." + h) for h in ALLOWED_OPEN_HOSTS):
+        raise RuntimeError(f"不允许打开这个站点：{host}")
+    webbrowser.open(url)
+    return url
+
+
 
 
 # --------------------------------------------------------------------------
@@ -2807,6 +2885,8 @@ class Handler(BaseHTTPRequestHandler):
                 "persist": persist_status(),
                 "compat": compat_report(state, paths),
                 "app": APP_VERSION,
+                "repo": APP_REPO_URL,
+                "releases": APP_RELEASES_URL,
                 "site": SITE_URL,
                 "frozen": FROZEN,
                 "home": str(HOME_DIR),
@@ -2968,6 +3048,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/api/mods/suspend":
             return suspend_mods(state, paths, reason="手动隔离模组")
+
+        if route == "/api/update/check":
+            return app_update_check()
+
+        if route == "/api/open-url":
+            return {"url": open_external(payload.get("url", ""))}
 
         if route == "/api/compat/check":
             result = check_mod_update()

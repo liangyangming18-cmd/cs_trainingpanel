@@ -1,0 +1,40 @@
+CS2 WORKBENCH
+版本: v1.0.4
+程序名: CS2 Workbench v1.0.4.exe
+构建: 2026-11-25（CS2 1.42.0.1 / build 26879581）
+
+本次改动
+1) 「启动游戏」搬到概览页（位置参考 Steam 的 PLAY 按钮）
+   - 概览顶部一整块主按钮：左边写当前模式 / 地图 / 游戏模式 / 难度 / 机器人数量 + 环境状态灯，
+     右边是蓝底白字的 ▶ 启动游戏
+   - 底部命令栏不再放启动按钮，只留「写入 cfg」「退出」，启动入口只有一个，不会点错
+   - 在线原版模式或没定位到 CS2 时按钮自动置灰并说明原因
+2) 新增「设置」页（导航 07）
+   - 外观：自动（跟随 Windows 明暗）/ 浅色 / 深色，选择记在浏览器本地，
+     顶栏那段小开关已撤掉，避免重复
+   - 版本：当前版本、检查更新（读本仓库 Release 并与 APP_VERSION 比对）、更新日志
+   - 历史版本 / 回退：列出仓库里所有 Release，标 CURRENT / 新版 / 可回退，一键下载对应 exe
+   - 关于：仓库、发布页、工作台目录、模组包、游戏目录一览
+3) 版本更新 / 回退走 GitHub Release
+   - 新接口 POST /api/update/check → {current, latest, newer, versions[]}
+   - 新接口 POST /api/open-url → 只允许打开 github.com / inventory.cstrike.app，避免任意跳转
+   - 回退方式：下载旧版 exe 覆盖同名文件即可，state.json / ledger.json / cfg 都不用动
+4) 仓库与发布脚本
+   - 仓库: https://github.com/liangyangming18-cmd/cs_trainingpanel
+   - tools/publish.py：打包 → 提交 → 打 tag → 推 main 与 tag → 建 Release 并上传 exe
+     用法: set GITHUB_TOKEN=xxx 然后 python tools/publish.py
+   - .gitignore 排除 exe / build / mods / state.json / ledger.json / backup 等本机数据，
+     仓库里只放源码与文档
+   - 仓库历史按版本打了 4 个 tag：v1.0.1 / v1.0.2 / v1.0.3 / v1.0.4
+
+本版本目录内容
+  CS2 Workbench v1.0.4.exe   双击即用（自带 web / data / 模组包）
+  server.py / web/ / tools/  源码
+  README.md                  完整说明（含 v1.0.3、v1.0.4 改动对照表）
+  build/                     PyInstaller spec 与图标
+  运行时才生成：state.json、ledger.json、ledger/、backup/、mods/
+
+已知限制
+- 设置页的「检查更新 / 历史版本」依赖仓库里存在 Release；仓库刚建、还没发 Release 时
+  会提示「查询失败：HTTP 404」，发第一个 Release 后即正常
+- 更新与回退只给下载链接，替换 exe 由你自己做（不会自动覆盖正在运行的程序）
