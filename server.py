@@ -2119,7 +2119,7 @@ def _spawn_game(paths: dict, args: list[str], use_steam: bool = True) -> dict:
 # 版本兼容性：游戏版本 vs 模组构建时间
 # --------------------------------------------------------------------------
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 # CS2 1.42.0.1（2026-11-23）之后，只有 CSSharp 1.0.381+ 能稳定加载插件；
 # 低版本会在进图后 15-25 秒崩在 tier0.dll+0xbc62c。

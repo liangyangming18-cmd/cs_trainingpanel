@@ -1,4 +1,4 @@
-# CS2 WORKBENCH v1.0.4
+# CS2 WORKBENCH v1.0.5
 
 把「强化的离线人机」和「服务器端换肤」捏成一个本地工作台，全部在 `-insecure` 离线环境下运行。
 
@@ -6,7 +6,17 @@
 - 换肤：[ianlucas/cs2-inventory-simulator](https://github.com/ianlucas/cs2-inventory-simulator)（服务器端 InventorySimulator 插件，皮肤取自 [inventory.cstrike.app](https://inventory.cstrike.app)）
 - 界面：原生 HTML/CSS/JS，Windows 11 Fluent 风格（Mica 分层、8px 圆角、Segoe UI Variable、跟随系统明暗）；后端是 Python 标准库，打包成单文件 exe
 
-**当前版本 v1.0.4**（程序名就是 `CS2 Workbench v1.0.4.exe`，界面左上角与底部命令栏同步显示）
+**当前版本 v1.0.5**（程序名就是 `CS2 Workbench v1.0.5.exe`，界面左上角与底部命令栏同步显示）
+
+### v1.0.5 修了什么
+
+| 问题 | 原因 | 修复 |
+| --- | --- | --- |
+| **设置页永远停在「正在查询仓库…」，历史版本列表空白** | `renderSettings()` 在 `META` 还没拉到时就读 `META.frozen`，抛 `TypeError`，`checkUpdate()` 的 `await` 之后再没机会复位 `loading` | 关于区块改用 `META || {}` 容错；`checkUpdate()` 整体加 `try/finally`，无论渲染是否出错都复位 `loading` 并重绘；同时加并发保护，避免重复请求 |
+| 设置页刷新时偶发「正在查询」字样残留 | 同上 | 同上 |
+| 版本号 | — | 全链路升到 1.0.5 |
+
+> 附带说明：v1.0.4 的 Release 附件里带的还是这个 bug，请用 v1.0.5。
 
 ### v1.0.4 改了什么
 
@@ -47,13 +57,13 @@
 
 ## 一、启动
 
-双击 **`CS2 Workbench v1.0.4.exe`**，浏览器自动打开 `http://127.0.0.1:8787/`。
+双击 **`CS2 Workbench v1.0.5.exe`**，浏览器自动打开 `http://127.0.0.1:8787/`。
 
 - 单文件，不需要装 Python；里面已经带了 Metamod / CounterStrikeSharp / 两套插件
 - **模组来源优先用你自己那份** `D:\Klay\Downloads\CS2BotImprover`（你在 Panel.exe 里改的参数会直接生效）；找不到时才用 exe 内嵌的模组包，并解到 `mods/`（约 170 MB，只解一次）
 - 运行时数据（`state.json`、`ledger.json`、`backup/`）也放在 exe 旁边；目录不可写时自动改用 `%LOCALAPPDATA%\CS2Workbench`
 - 再双击一次不会开第二个进程，只会把已经打开的页面调出来
-- 关掉页面不会停服务，点右下角 **退出** 或结束 `CS2 Workbench v1.0.4.exe` 进程
+- 关掉页面不会停服务，点右下角 **退出** 或结束 `CS2 Workbench v1.0.5.exe` 进程
 - 双击启动的 exe 是**独立进程**（父进程是 explorer），关掉终端、关掉任何宿主程序都不影响服务；`start.bat` 用 `start` 拉起，同样不留依赖
 - 万一服务真的被结束了，页面不会只甩一个 `Failed to fetch`：顶部会弹出白色提示条，页面变暗暂停，**每 2.5 秒自动重连**，服务一回来就自动接回原来的状态（也可以点提示条右侧「立即重试」，或重新双击 exe）
 - 想从终端启动又不希望随终端关闭：`set WB_DETACH=1` 再运行，exe 会用 `DETACHED_PROCESS` + `CREATE_BREAKAWAY_FROM_JOB` 把自己重新拉成独立进程
@@ -73,7 +83,7 @@
 不用 `schtasks` / 计划任务，不用管理员权限，也不会往系统里塞服务。判断是否真的独立了：
 
 ```powershell
-Get-CimInstance Win32_Process -Filter "Name='CS2 Workbench v1.0.4.exe'" |
+Get-CimInstance Win32_Process -Filter "Name='CS2 Workbench v1.0.5.exe'" |
   Select-Object ProcessId, ParentProcessId
 # 第一层父进程应该是 explorer.exe
 ```
@@ -298,7 +308,7 @@ steam.exe -applaunch 730 -insecure -console -novid +exec wb_match.cfg +game_type
 
 ```
 CS2-Workbench/
-├─ CS2 Workbench v1.0.4.exe   双击即用（自带 web / data / 模组包）
+├─ CS2 Workbench v1.0.5.exe   双击即用（自带 web / data / 模组包）
 ├─ start.bat              备用启动（有 exe 就调 exe，否则跑源码）
 ├─ server.py              本地服务端（标准库，无依赖）
 ├─ state.json             运行状态（模式、难度、对局参数、库存模型、官网缓存）
@@ -324,7 +334,8 @@ python tools/build_catalog.py
 ## 九、版本仓库与发布
 
 - 仓库：<https://github.com/liangyangming18-cmd/cs_trainingpanel>
-- 每个版本一个 tag（`v1.0.1` … `v1.0.4`），Release 里放该版本的 `CS2 Workbench vX.Y.Z.exe`
+- 每个版本一个 tag（`v1.0.1` … `v1.0.5`），Release 里放该版本的 `CS2 Workbench vX.Y.Z.exe`
+- GitHub 会把附件名里的空格换成点（下载到的是 `CS2.Workbench.v1.0.5.exe`），改回原名或直接用都能跑
 - 设置页的「检查更新 / 历史版本回退」读的就是这些 Release：比 `APP_VERSION` 新就提示更新，比它旧就标「可回退」
 
 改完代码一条命令发布（打包 + 提交 + 打 tag + 推送 + 传 Release 附件）：

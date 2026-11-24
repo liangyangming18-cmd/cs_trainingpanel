@@ -230,7 +230,7 @@ function renderRail() {
   $("#rail-path").textContent = PATHS.csgo || "未定位安装目录";
   $("#top-mode").textContent = (META.modes[S.mode] || {}).label || S.mode;
   $("#top-diff").textContent = (META.difficulty[S.difficulty] || S.difficulty) + " 难度";
-  const ver = META.app ? "v" + META.app : "v1.0.4";
+  const ver = META.app ? "v" + META.app : "v1.0.5";
   const bv = $("#brand-ver");
   if (bv) bv.textContent = ver;
   document.title = `CS2 Workbench ${ver}`;
@@ -468,7 +468,7 @@ function renderCompat() {
     `CSSharp 已装 ${cssVer || "未知"}${adapted ? "（适配）" : `（需 ${c.minCss || "1.0.381"}+）`}`,
     `Metamod ${m.metamod || "?"}`,
     boostOn ? "运行时：免插件强化" : c.suspended ? "模组已挂起" : "模组已挂载",
-    `工作台 v${c.app || META.app || "1.0.4"}`,
+    `工作台 v${c.app || META.app || "1.0.5"}`,
   ].filter(Boolean);
   $("#compat-ver").textContent = bits.join(" · ");
 }
@@ -911,7 +911,7 @@ function fmtSize(bytes) {
 }
 
 function renderSettings() {
-  const cur = (META && META.app) || "1.0.4";
+  const cur = (META && META.app) || "1.0.5";
   const curEl = $("#ver-current");
   if (curEl) curEl.textContent = "v" + cur;
 
@@ -980,12 +980,14 @@ function renderSettings() {
 
   const about = $("#about-grid");
   if (about) {
+    // META 可能在首帧还没拉到（settings 页在 bind 阶段就会先渲染一次），这里必须容错
+    const M = META || {};
     const rows = [
-      ["工作台版本", "v" + cur + (META.frozen ? "（单文件 exe）" : "（源码运行）")],
-      ["代码仓库", (META && META.repo) || "—"],
-      ["发布页面", (META && META.releases) || "—"],
-      ["工作台目录", (META && META.home) || "—"],
-      ["模组包", (META && META.pkgBot) || "—"],
+      ["工作台版本", "v" + cur + (M.frozen ? "（单文件 exe）" : "（源码运行）")],
+      ["代码仓库", M.repo || "—"],
+      ["发布页面", M.releases || "—"],
+      ["工作台目录", M.home || "—"],
+      ["模组包", M.pkgBot || "—"],
       ["游戏目录", (PATHS && PATHS.csgo) || "未定位"],
     ];
     about.innerHTML = rows.map(([k, v]) => `
@@ -997,17 +999,21 @@ function renderSettings() {
 }
 
 async function checkUpdate() {
+  if (UPDATE.loading) return null;
   UPDATE.loading = true;
   renderSettings();
-  const data = await api("/api/update/check", {});
-  UPDATE.loading = false;
-  if (!data) {
-    UPDATE.data = { ok: false, error: "无法连接工作台服务" };
-    renderSettings();
-    return null;
+  try {
+    const data = await api("/api/update/check", {});
+    UPDATE.data = data
+      ? data.result || { ok: false, error: "返回数据异常" }
+      : { ok: false, error: "无法连接工作台服务" };
+  } catch (err) {
+    UPDATE.data = { ok: false, error: String((err && err.message) || err) };
+  } finally {
+    // 无论渲染是否抛错，loading 必须复位，否则页面会永远停在「正在查询仓库…」
+    UPDATE.loading = false;
+    try { renderSettings(); } catch (err) { console.error("renderSettings failed", err); }
   }
-  UPDATE.data = data.result || { ok: false, error: "返回数据异常" };
-  renderSettings();
   const d = UPDATE.data;
   if (d.ok && d.newer) toast(`有新版 ${d.latest.tag}，可在「设置 → 历史版本」下载`);
   else if (d.ok && d.latest) toast("已是最新版本");
@@ -1022,7 +1028,7 @@ function renderActionbar() {
   const modeLabel = (META.modes[S.mode] || {}).label || S.mode;
   $("#ab-mode").textContent = modeLabel;
   const m = S.match;
-  const ver = META.app ? "v" + META.app : "v1.0.4";
+  const ver = META.app ? "v" + META.app : "v1.0.5";
   $("#ab-meta").textContent =
     `${m.map} · ${(META.gamemodes[m.gamemode] || {}).label || m.gamemode} · ${META.difficulty[S.difficulty] || S.difficulty} · -insecure · ${ver}`;
   renderHero();
